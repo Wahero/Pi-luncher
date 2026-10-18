@@ -2,6 +2,9 @@
 
 Pi Agent 批量自动化启动工具（Rust 实现）。
 
+> 仓库：<https://github.com/Wahero/Pi-luncher>
+> 设计文档：[docs/Pi-Luncher.html](docs/Pi-Luncher.html)（浏览器打开，含完整设计说明与源码）
+
 一条命令完成 **环境预检 → `pi update --all` → 检查并升级 `pi-web` → 启动 `pi-web` → 启动 Pi CLI** 的完整流程，每个环节都带状态显示与错误检查。
 
 其中第 3 步会查询 npm registry 上 `@agegr/pi-web` 的最新版本，并与本地已安装版本比较：发现新版本（或本地查询失败 / 未安装）时自动执行 `npm install -g @agegr/pi-web@latest` 升级；已是最新则跳过。若 `pi-web` **正在运行**（实例锁定包文件，npm 无法替换），升级会被安全跳过并提示先 `pi-web stop` 后重试。
@@ -16,6 +19,7 @@ Pi Agent 批量自动化启动工具（Rust 实现）。
 | `pi-launcher --quiet` | 安静模式（`-q` / `--auto` 别名）：几乎零输出、**跳过 Pi CLI**，完成或失败都自动关窗；细节全在日志 |
 | `pi-launcher --spin <名字>` | 指定右侧动画（`dots` / `dots2` / `grow` / `moon` / `clock` / `hourglass`）|
 | `pi-launcher -h` / `--help` | 参数说明 |
+| `pi-launcher --force-tty` | 调试用：非终端环境强制走动画渲染路径 |
 
 - **结束停留**：正常模式结束后按 Enter 立即关闭；**30 秒无输入自动倒计时关闭**（成功、失败路径一致）。非交互终端（管道 / CI）直接关闭。
 - **动画轮换**：右侧动画从 6 组池中按本机启动次数循环选用（每次启动自动换一个），也可用 `--spin` 固定。
@@ -94,14 +98,18 @@ pi-web stop
 
 ```
 pi-launcher/
-├── Cargo.toml          # 依赖配置
+├── Cargo.toml          # 依赖配置（含 [profile.release] 体积优化，见下方规则）
 ├── src/
 │   ├── main.rs         # 主入口、流程编排、supervisor、结束停留
 │   ├── ui.rs           # 统一输出层（交互动画 / 纯文字 / 安静）+ 文字日志
-│   ├── command_runner.rs  # 命令执行、就绪探测、 detached 启动
+│   ├── command_runner.rs  # 命令执行、就绪探测、detached 启动
 │   └── steps.rs        # 各启动步骤定义与执行
+├── tools/
+│   └── gen-docs.ps1    # 从当前源码再生成 docs/Pi-Luncher.html
 ├── docs/
-│   └── Pi-Luncher.html # 完整设计说明（与源码同步，v1.0.0）
+│   └── Pi-Luncher.html # 完整设计说明（与源码同步，v1.0.0；
+│                       #   可直接在浏览器打开，或点开仓库内文件渲染）
+├── AGENTS.md           # 项目规则（体积优化等，构建代理必读）
 └── README.md
 ```
 
