@@ -1,0 +1,19 @@
+[package]
+name = "pi-launcher"
+version = "1.0.0"
+edition = "2021"
+description = "Pi Agent 批量自动化启动工具"
+
+[dependencies]
+indicatif = "0.17"
+console = "0.15"
+unicode-width = "0.2"
+ctrlc = "3"
+windows-sys = { version = "0.61", features = ["Win32_System_SystemInformation", "Win32_Foundation"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"
