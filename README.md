@@ -107,7 +107,7 @@ pi-launcher/
 
 ## 减小发布版体积
 
-在 `Cargo.toml` 末尾加入：
+**本项目重要规则**：每次生成目标码都保持程序体积优化。`Cargo.toml` 已内置以下配置（勿移除或弱化；调整 profile 后核对 `target/release/pi-launcher.exe` 体积不得明显回退，v1.0.0 约 390 KB）：
 
 ```toml
 [profile.release]
