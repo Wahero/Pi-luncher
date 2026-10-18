@@ -131,3 +131,7 @@ panic = "abort"
 - **依赖下载慢**：配置国内镜像（`~/.cargo/config.toml`），例如 USTC 源。
 - **报错找不到模块**：确认 `src/main.rs` 中有 `mod command_runner; mod steps;`，且对应文件存在、大小写正确。
 - **运行时报 `pi` / `pi-web` 找不到**：这是运行环境问题而非编译问题，需先执行上面的 `npm install -g` 安装命令。
+
+## 许可
+
+[Apache-2.0](LICENSE)
