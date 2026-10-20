@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pi Agent 批量自动化启动工具 - Rust 实现 v1.0.0</title>
+<title>Pi Agent 批量自动化启动工具 - Rust 实现 v1.1.0</title>
 <style>
   :root {
     --bg: #0d1117;
@@ -485,14 +485,16 @@
       <p>
         一个用 Rust 编写的启动器工具，一条命令完成
         <strong>环境预检 → pi update --all → 检查并升级 pi-web → 启动 pi-web → 启动 Pi CLI</strong>
-        的完整流程。每个环节都有状态显示与错误检查；支持安静模式（自动化 / 计划任务）与全程文字日志。
+        的完整流程。每个环节都有状态显示与错误检查；三档显示模式（工作账 / 轻修 / 极简）随 <code>--display</code> 切换；
+        支持安静模式（自动化 / 计划任务）与全程文字日志。
       </p>
       <div class="tags">
-        <span>v1.0.0</span>
+        <span>v1.1.0</span>
         <span>Rust 2021</span>
         <span>indicatif 0.17</span>
         <span>脱离式后台</span>
         <span>--quiet 安静模式</span>
+        <span>--display A/B/C</span>
         <span>全程文字日志</span>
       </div>
     </header>
@@ -575,7 +577,7 @@
       </div>
 <pre><code>[package]
 name = "pi-launcher"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "Pi Agent 批量自动化启动工具"
 
@@ -910,7 +912,7 @@ pub fn terminate_background(child: &amp;mut Child) {
     build_command, command_exists, probe_http, run_capture, run_checked, spawn_detached,
     terminate_background, wait_ready, RunResult, StartupOutcome,
 };
-use crate::ui::Ui;
+use crate::ui::{self, Ui};
 use std::process::Child;
 
 /// 启动步骤总数（与 main 的流程一一对应）
@@ -933,12 +935,13 @@ pub enum WebStart {
 }
 
 /// 步骤 1：环境预检（pi / pi-web / npm）
+/// 行内只显示一行（右上侧动态报当前检查项），逐项就绪写进日志。
 pub fn step_preflight(ui: &amp;mut Ui) -&gt; Result&lt;(), String&gt; {
-    ui.step_start(1, "环境预检（pi / pi-web / npm）", false);
+    ui.step_start(1, "环境预检（pi / pi-web / npm）", "环境预检", false);
 
     let required = ["pi", "pi-web", "npm"];
     for name in &amp;required {
-        ui.step_message(&amp;format!("正在检查命令 `{}` …", name));
+        ui.step_message(&amp;format!("检查命令 `{}` …", name));
         if !command_exists(name) {
             let msg = format!(
                 "未找到命令 `{}`。请先安装 Pi Coding Agent：\n   npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
@@ -950,7 +953,7 @@ pub fn step_preflight(ui: &amp;mut Ui) -&gt; Result&lt;(), String&gt; {
             );
             return Err(msg);
         }
-        ui.message(&amp;format!("  ✓ 命令 `{}` 已就绪", name));
+        ui::log(&amp;format!("  ✓ 命令 `{}` 已就绪", name));
     }
 
     ui.step_ok("pi / pi-web / npm 全部就绪");
@@ -959,7 +962,7 @@ pub fn step_preflight(ui: &amp;mut Ui) -&gt; Result&lt;(), String&gt; {
 
 /// 步骤 2：执行 pi update --all
 pub fn step_pi_update(ui: &amp;mut Ui) -&gt; Result&lt;(), String&gt; {
-    ui.step_start(2, "执行 pi update --all", false);
+    ui.step_start(2, "执行 pi update --all", "pi update --all", false);
     ui.step_message("正在更新 Pi 及扩展包…");
 
     let result = run_checked("pi", &amp;["update", "--all"]);
@@ -997,7 +1000,7 @@ pub fn step_pi_update(ui: &amp;mut Ui) -&gt; Result&lt;(), String&gt; {
 ///
 /// 任何查询失败都视为“无法确认”，走安全路径（直接执行安装命令由 npm 自行判断）。
 pub fn step_pi_web_upgrade(ui: &amp;mut Ui, host: &amp;str, port: u16) -&gt; Result&lt;(), String&gt; {
-    ui.step_start(3, "检查并升级 pi-web", false);
+    ui.step_start(3, "检查并升级 pi-web", "检查并升级 pi-web", false);
 
     // 运行中的实例会锁定包目录，npm -g 升级必然失败（EBUSY），
     // 因此先探测：在运行就跳过升级，保留现有版本。
@@ -1118,7 +1121,7 @@ fn run_upgrade_install(ui: &amp;mut Ui) -&gt; Result&lt;(), String&gt; {
 /// - 启动前先 HTTP 探测：服务已在运行则跳过（保留原进程，本进程无从监控）
 /// - 否则 detached 启动，并以确定进度条展示「等待 HTTP 就绪」的时间轴（60s 上限）
 pub fn step_pi_web(ui: &amp;mut Ui, host: &amp;str, port: u16) -&gt; Result&lt;WebStart, String&gt; {
-    ui.step_start(4, "启动 pi-web（常驻后台）", true);
+    ui.step_start(4, "启动 pi-web（常驻后台）", "启动 pi-web（后台）", true);
 
     // 已在运行？直接跳过，避免端口冲突
     if probe_http(host, port) {
@@ -1173,7 +1176,7 @@ pub fn step_pi_web(ui: &amp;mut Ui, host: &amp;str, port: u16) -&gt; Result&lt;W
 /// 注意：`pi` 的 `--mode` 只接受 text / json / rpc，并没有 interactive；
 /// 交互模式是在「stdin/stdout 都是 TTY 且非 --print」时的预设行为，所以直接跑 `pi`。
 pub fn step_pi_cli(ui: &amp;mut Ui) -&gt; Result&lt;(), String&gt; {
-    ui.step_start(5, "启动 Pi CLI 交互界面", false);
+    ui.step_start(5, "启动 Pi CLI 交互界面", "Pi CLI", false);
 
     // CLI 是 TUI：清掉剩余渲染（底部整体条），避免重绘互相打架
     ui.overall_finish();
@@ -1313,6 +1316,11 @@ mod tests {
           <div class="desc">MultiProgress：步骤行右侧固定动画/进度 + 底部整体进度；普通行挂在 MultiProgress 上安全打印。</div>
         </div>
         <div class="feature-card">
+          <span class="icon">📊</span>
+          <div class="name">显示模式</div>
+          <div class="desc">--display A（工作账·默认）一步一行、完成即原位凝固；B（轻修）分栏仪表；C（极简）一行流。</div>
+        </div>
+        <div class="feature-card">
           <span class="icon">📄</span>
           <div class="name">Text</div>
           <div class="desc">非 TTY（管道 / CI）：纯文字输出，无渲染开销，结果行带耗时。</div>
@@ -1326,6 +1334,11 @@ mod tests {
       <div class="callout note">
         <span class="title">动画池轮换</span>
         6 组（dots / dots2 / grow / moon / clock / hourglass）；启动时按本机日志计数取模循环，也可 <code>--spin &lt;名字&gt;</code> 固定。
+      </div>
+      <div class="callout note">
+        <span class="title">行即事实（--display A）</span>
+        工作账模式下每步只有一行：运行时右侧转圈 + 已耗时 + 当前动作，完成瞬间原位变为「✓ 耗时 结论」，失败变「✗ 原因」。
+        收尾时整体条撤场，账目行按序重放为普通行，让最终信息排在账目之后。底部整体进度条全程钉在屏幕最底端。
       </div>
       <div class="callout note">
         <span class="title">日志</span>
@@ -1350,20 +1363,48 @@ mod tests {
 //! 每次启动建新文件，自动保留最近 LOG_KEEP 份。
 ////////////////////////////////////////////////////////////////////////////////
 
-use console::Term;
+use console::{style, Term};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
+use unicode_width::UnicodeWidthStr;
 
-pub const VERSION: &amp;str = "1.0.0";
+pub const VERSION: &amp;str = "1.1.0";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
     Normal,
     Quiet,
+}
+
+// ────────────────────────────────────────────────────────────────
+// 显示模式（--display A|B|C）：三档交互版式，仅影响 TTY 渲染；
+// 非 TTY 自动退化为纯文字、安静模式零输出，两者不受本参数影响。
+//   A = 工作账（Ledger，默认）：一步一行，进行中实时刷新，完成即原位凝固
+//   B = 轻修（Lite）：保留分栏仪表节奏 + 圆角细框 banner
+//   C = 极简（Min）：单行流，无框无分隔线
+// ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Display {
+    Ledger, // A：工作账
+    Lite,   // B：轻修
+    Min,    // C：极简
+}
+
+impl Display {
+    /// 解析 --display 的值；大小写不敏感，接受简写与别名。
+    pub fn from_arg(s: &amp;str) -&gt; Option&lt;Display&gt; {
+        match s.to_ascii_lowercase().as_str() {
+            "a" | "ledger" =&gt; Some(Display::Ledger),
+            "b" | "lite" | "light" =&gt; Some(Display::Lite),
+            "c" | "min" | "minimal" =&gt; Some(Display::Min),
+            _ =&gt; None,
+        }
+    }
 }
 
 pub const LOG_KEEP: usize = 20;
@@ -1606,7 +1647,7 @@ pub fn notify(msg: &amp;str) {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 前景 UI：步骤渲染（交互 / 纯文字 / 安静 郑州）
+// 前景 UI：步骤渲染（交互 / 纯文字 / 安静模式）
 // ────────────────────────────────────────────────────────────────
 
 enum Kind {
@@ -1623,11 +1664,13 @@ enum Kind {
 
 pub struct Ui {
     kind: Kind,
+    display: Display,
     steps_total: usize,
     anim_name: Option&lt;&amp;'static str&gt;,
     anim_index: Option&lt;usize&gt;,
 
-    // 底部整体进度（仅交互模式）
+    // 底部整体进度（仅交互模式）：初始化时最先 add，所有步骤行都插入在它上方，
+    // 因此它始终钉在屏幕最底部
     overall: Option&lt;ProgressBar&gt;,
     overall_base: u64, // 已完成步骤的累计百分比基数
 
@@ -1635,12 +1678,24 @@ pub struct Ui {
     current_bar: Option&lt;ProgressBar&gt;,
     current_det: bool,
     current_idx: usize,
+    current_row_label: String,
     step_started: Option&lt;Instant&gt;,
+
+    // 已凝固的步骤行（行即事实）：成功收尾时先撤场再原样重放，
+    // 让收尾信息排在账目最后一行之后（println 会插在渲染块上方）
+    frozen_bars: Vec&lt;ProgressBar&gt;,
+    frozen_rows: Vec&lt;String&gt;,
 }
 
 impl Ui {
     /// 建立输出层（日志器已在 main 先行初始化）
-    pub fn init(mode: Mode, force_tty: bool, spin_forced: Option&lt;&amp;str&gt;, steps_total: usize) -&gt; Ui {
+    pub fn init(
+        mode: Mode,
+        display: Display,
+        force_tty: bool,
+        spin_forced: Option&lt;&amp;str&gt;,
+        steps_total: usize,
+    ) -&gt; Ui {
         match mode {
             Mode::Quiet =&gt; {
                 let _ = NOTIFY.set(Notify {
@@ -1650,6 +1705,7 @@ impl Ui {
                 });
                 Ui {
                     kind: Kind::Quiet,
+                    display,
                     steps_total,
                     anim_name: None,
                     anim_index: None,
@@ -1658,7 +1714,10 @@ impl Ui {
                     current_bar: None,
                     current_det: false,
                     current_idx: 0,
+                    current_row_label: String::new(),
                     step_started: None,
+                    frozen_bars: Vec::new(),
+                    frozen_rows: Vec::new(),
                 }
             }
             Mode::Normal =&gt; {
@@ -1671,6 +1730,7 @@ impl Ui {
                     });
                     return Ui {
                         kind: Kind::Text,
+                        display,
                         steps_total,
                         anim_name: None,
                         anim_index: None,
@@ -1679,7 +1739,10 @@ impl Ui {
                         current_bar: None,
                         current_det: false,
                         current_idx: 0,
+                        current_row_label: String::new(),
                         step_started: None,
+                        frozen_bars: Vec::new(),
+                        frozen_rows: Vec::new(),
                     };
                 }
 
@@ -1690,16 +1753,17 @@ impl Ui {
                     idx + 1,
                     anim_pool().len()
                 ));
+                log(&amp;format!(
+                    "显示模式：{}（--display {}）",
+                    display_label(display),
+                    "A|B|C"
+                ));
                 let mp = MultiProgress::new();
 
-                // 底部整体进度条：之后加进来的步骤 bar 渲染在它下方，
-                // 步骤 bar finish_and_clear 后消失，「整体」常驻底部。
+                // 底部整体进度条：整体是第一个加入的 bar（占 index 0），
+                // 后续步骤行通过 insert(idx-1) 插到它上方 → 整体永远钉在底部
                 let overall = mp.add(ProgressBar::new(100));
-                overall.set_style(
-                    ProgressStyle::with_template("  整体进度 {bar:26.cyan/green} {percent:&gt;3}%")
-                        .unwrap()
-                        .progress_chars("━╸─"),
-                );
+                overall.set_style(overall_style(display));
 
                 // supervisor 等后台线程需要同一条 MultiProgress 来安全输出
                 let _ = NOTIFY.set(Notify {
@@ -1709,10 +1773,8 @@ impl Ui {
                 });
 
                 Ui {
-                    kind: Kind::Interactive {
-                        mp,
-                        spin_chars: chars,
-                    },
+                    kind: Kind::Interactive { mp, spin_chars: chars },
+                    display,
                     steps_total,
                     anim_name: Some(name),
                     anim_index: Some(idx),
@@ -1721,7 +1783,10 @@ impl Ui {
                     current_bar: None,
                     current_det: false,
                     current_idx: 0,
+                    current_row_label: String::new(),
                     step_started: None,
+                    frozen_bars: Vec::new(),
+                    frozen_rows: Vec::new(),
                 }
             }
         }
@@ -1758,8 +1823,9 @@ impl Ui {
         }
     }
 
-    /// 步骤开始：打印步骤标题、建 bar（det → 确定进度条；spin → 右侧转圈）并记日志
-    pub fn step_start(&amp;mut self, idx: usize, label: &amp;str, det: bool) {
+    /// 步骤开始：按模式插入一行（insert 确保步骤行都排在整体条上方 → 整体钉底）。
+    /// det → 确定进度条；spin → 转圈。日志仍记长标题，行内用短名。
+    pub fn step_start(&amp;mut self, idx: usize, label: &amp;str, row_label: &amp;str, det: bool) {
         let total = self.steps_total;
         log(&amp;format!("[STEP {}/{}] 开始：{}", idx, total, label));
 
@@ -1767,20 +1833,24 @@ impl Ui {
         self.current_det = det;
         self.step_started = Some(Instant::now());
         self.current_bar = None;
+        self.current_row_label = row_label.to_string();
 
         match &amp;self.kind {
-            Kind::Interactive { mp, .. } =&gt; {
-                mp.println(format!("\n  [{}/{}] {}", idx, total, label))
-                    .ok();
-
-                let bar = mp.add(ProgressBar::new(100));
-                let style = if det {
-                    det_style()
+            Kind::Interactive { mp, spin_chars } =&gt; {
+                let bar = mp.insert(idx.saturating_sub(1), ProgressBar::new(100));
+                let tpl = run_tpl(self.display, det);
+                let sty = if det {
+                    ProgressStyle::with_template(tpl)
+                        .expect("步骤行模板是静态合法模板")
+                        .progress_chars("━╸─")
                 } else {
-                    spin_style(self.spin_chars())
+                    ProgressStyle::with_template(tpl)
+                        .expect("步骤行模板是静态合法模板")
+                        .tick_chars(spin_chars)
                 };
-                bar.set_style(style);
-                bar.set_message(if det { "等待中…" } else { "执行中…" });
+                bar.set_style(sty);
+                bar.set_prefix(self.running_prefix());
+                bar.set_message(row_label.to_string());
                 bar.enable_steady_tick(std::time::Duration::from_millis(90));
                 self.current_bar = Some(bar);
             }
@@ -1791,11 +1861,13 @@ impl Ui {
         }
     }
 
-    /// 更新当前步骤的 bar 右侧消息
+    /// 更新当前步骤右侧动态动作（仅 spin 行有 {wide_msg}；det 行右侧被 bar 占用）
     pub fn step_message(&amp;mut self, msg: &amp;str) {
         if let Kind::Interactive { .. } = &amp;self.kind {
-            if let Some(bar) = &amp;self.current_bar {
-                bar.set_message(msg.to_string());
+            if !self.current_det {
+                if let Some(bar) = &amp;self.current_bar {
+                    bar.set_message(msg.to_string());
+                }
             }
         }
     }
@@ -1815,54 +1887,65 @@ impl Ui {
         }
     }
 
-    /// 步骤成功：清 bar、打印 ✓、日志带耗时；整体进度推进一个步距
+    /// 步骤成功：行原位凝固为 ✓ 行；整体进度推进一个步距
     pub fn step_ok(&amp;mut self, msg: &amp;str) {
+        self.frozen_step(true, msg);
+    }
+
+    /// 步骤失败：行原位凝固为 ✗ 行
+    pub fn step_fail(&amp;mut self, msg: &amp;str) {
+        self.frozen_step(false, msg);
+    }
+
+    /// 白盒内部：把当前活动行替换为凝固行（不换行、不再刷新）。
+    /// 行文本同时写入 frozen_rows，成功收尾时 replay_ledger 会原样重放。
+    fn frozen_step(&amp;mut self, ok: bool, msg: &amp;str) {
         let secs = self.step_secs();
         let idx = self.current_idx;
         let per = 100u64 / self.steps_total.max(1) as u64;
 
         log(&amp;format!(
-            "[STEP {}/{}] 完成：{}（{:.1}s）",
-            idx, self.steps_total, msg, secs
+            "[STEP {}/{}] {}：{}（{:.1}s）",
+            idx,
+            self.steps_total,
+            if ok { "完成" } else { "失败" },
+            msg,
+            secs
         ));
 
+        let interactive = matches!(&amp;self.kind, Kind::Interactive { .. });
         if let Some(bar) = self.current_bar.take() {
-            bar.finish_and_clear();
+            if interactive {
+                let line = self.frozen_line(ok, msg, secs);
+                bar.set_style(
+                    ProgressStyle::with_template("{msg}").expect("模板 '{msg}' 是合法模板"),
+                );
+                bar.set_message(line.clone());
+                bar.finish();
+                self.frozen_bars.push(bar);
+                self.frozen_rows.push(line);
+            } else {
+                bar.finish_and_clear();
+            }
         }
         self.step_started = None;
 
         match &amp;self.kind {
-            Kind::Interactive { mp, .. } =&gt; {
-                mp.println(format!("  ✓ {}", msg)).ok();
-                if let Some(overall) = &amp;self.overall {
-                    self.overall_base = ((self.overall_base / per) + 1) * per;
-                    overall.set_position(self.overall_base);
+            Kind::Interactive { .. } =&gt; {
+                if ok {
+                    if let Some(overall) = &amp;self.overall {
+                        self.overall_base = ((self.overall_base / per) + 1) * per;
+                        overall.set_position(self.overall_base);
+                    }
                 }
             }
-            Kind::Text =&gt; println!("  ✓ {}（{:.1}s）", msg, secs),
-            Kind::Quiet =&gt; {}
-        }
-    }
-
-    /// 步骤失败：清 bar、打印 ✗、落盘
-    pub fn step_fail(&amp;mut self, msg: &amp;str) {
-        let secs = self.step_secs();
-        let idx = self.current_idx;
-        log(&amp;format!(
-            "[STEP {}/{}] 失败：{}（{:.1}s）",
-            idx, self.steps_total, msg, secs
-        ));
-
-        if let Some(bar) = self.current_bar.take() {
-            bar.finish_and_clear();
-        }
-        self.step_started = None;
-
-        match &amp;self.kind {
-            Kind::Interactive { mp, .. } =&gt; {
-                mp.println(format!("  ✗ {}", msg)).ok();
+            Kind::Text =&gt; {
+                if ok {
+                    println!("  ✓ {}（{:.1}s）", msg, secs);
+                } else {
+                    println!("  ✗ {}", msg);
+                }
             }
-            Kind::Text =&gt; println!("  ✗ {}", msg),
             Kind::Quiet =&gt; {}
         }
     }
@@ -1874,10 +1957,31 @@ impl Ui {
         }
     }
 
-    fn spin_chars(&amp;self) -&gt; &amp;'static str {
-        match &amp;self.kind {
-            Kind::Interactive { spin_chars, .. } =&gt; spin_chars,
-            _ =&gt; "",
+    /// 成功收尾：撤掉底部整体条与凝固行后的活动渲染，再把凝固行原样重放为普通行，
+    /// 让收尾信息（日志路径、✓ 全部完成）自然排在账目最后一行之后。
+    /// 失败路径不调用本方法——失败时保留凝固现场，便于停屏观察。
+    pub fn replay_ledger(&amp;mut self) {
+        let is_interactive = matches!(&amp;self.kind, Kind::Interactive { .. });
+        if !is_interactive {
+            return;
+        }
+
+        // 与 kind 的不可变借用不相交的经典字段操作，逐个处理
+        if let Some(overall) = self.overall.take() {
+            overall.finish_and_clear();
+        }
+        if let Some(bar) = self.current_bar.take() {
+            bar.finish_and_clear();
+        }
+        let bars = std::mem::take(&amp;mut self.frozen_bars);
+        for bar in bars {
+            bar.finish_and_clear();
+        }
+        let rows = std::mem::take(&amp;mut self.frozen_rows);
+        if let Kind::Interactive { mp, .. } = &amp;self.kind {
+            for row in rows {
+                mp.println(row).ok();
+            }
         }
     }
 
@@ -1886,19 +1990,152 @@ impl Ui {
             .map(|s| s.elapsed().as_secs_f64())
             .unwrap_or(0.0)
     }
+
+    /// 运行中的行前缀：编号（上色）+ 名称（按显示宽度补位）。
+    /// 与冻结行共用同一套编号/名称规则，保证行切换前后语义一致。
+    fn running_prefix(&amp;self) -&gt; String {
+        let idx = self.current_idx;
+        let (num, nw) = match self.display {
+            Display::Ledger =&gt; (format!("{}/{}", idx, self.steps_total), 20),
+            Display::Lite =&gt; (format!("[{}/{}]", idx, self.steps_total), 20),
+            Display::Min =&gt; (format!("{}·", idx), 7),
+        };
+        format!(
+            "{} {}",
+            style(num).cyan(),
+            pad_width(self.current_row_label.as_str(), nw)
+        )
+    }
+
+    /// 凝固行文本：编号（灰）+ 名称 + ✓/✗ + 耗时 + 结论。
+    fn frozen_line(&amp;self, ok: bool, msg: &amp;str, secs: f64) -&gt; String {
+        let idx = self.current_idx;
+        let (num, nw) = match self.display {
+            Display::Ledger =&gt; (format!("{}/{}", idx, self.steps_total), 20),
+            Display::Lite =&gt; (format!("[{}/{}]", idx, self.steps_total), 20),
+            Display::Min =&gt; (format!("{}·", idx), 7),
+        };
+        let mark = if ok { style("✓").green() } else { style("✗").red() };
+        let tail = if ok { style(msg).dim() } else { style(msg).red() };
+        format!(
+            "  {} {} {} {} {}",
+            style(num).dim(),
+            pad_width(self.current_row_label.as_str(), nw),
+            mark,
+            style(format!("{:.1}s", secs)).dim(),
+            tail
+        )
+    }
 }
 
-fn spin_style(spin_chars: &amp;'static str) -&gt; ProgressStyle {
-    // 右侧固定位置：{wide_msg} 把残余宽度撑满，将转圈 + 已耗时推到行末
-    ProgressStyle::with_template("{wide_msg} {spinner:.green} {elapsed:&gt;4}")
-        .unwrap()
-        .tick_chars(spin_chars)
+// ────────────────────────────────────────────────────────────────
+// 模板与文本工具（展示宽度全部按 unicode-width 口径计算）
+// ────────────────────────────────────────────────────────────────
+
+/// 显示模式下的人类可读名（日志用）
+fn display_label(d: Display) -&gt; &amp;'static str {
+    match d {
+        Display::Ledger =&gt; "工作账",
+        Display::Lite =&gt; "轻修",
+        Display::Min =&gt; "极简",
+    }
 }
 
-fn det_style() -&gt; ProgressStyle {
-    ProgressStyle::with_template("{wide_msg} {bar:14.cyan/blue} {percent:&gt;3}% eta:{eta:&gt;3}")
-        .unwrap()
+/// 交互步骤行模板（80 列预算内；{prefix} 为「编号+名称」整体，
+/// {wide_msg}/{bar} 是右侧动态动作位）。
+fn run_tpl(display: Display, det: bool) -&gt; &amp;'static str {
+    match (display, det) {
+        // A · 工作账：编号+名称 25 列 | 转圈 | 计时 | 右侧动作
+        (Display::Ledger, false) =&gt; {
+            "  {prefix:&lt;25} {spinner:.cyan} {elapsed:&gt;4.dim} {wide_msg:.dim}"
+        }
+        (Display::Ledger, true) =&gt; {
+            "  {prefix:&lt;25} {elapsed:&gt;4.dim} {bar:10.cyan/blue} {percent:&gt;3}% eta:{eta:&gt;2}"
+        }
+        // B · 轻修：编号+名称 26 列 + 短竖线分隔 + 状态
+        (Display::Lite, false) =&gt; {
+            "  {prefix:&lt;26} ─────────────── {spinner:.cyan} {elapsed:&gt;4.dim} {wide_msg:.dim}"
+        }
+        (Display::Lite, true) =&gt; {
+            "  {prefix:&lt;26} ─────────────── {elapsed:&gt;4.dim} {bar:8.cyan/blue} {percent:&gt;3}% eta:{eta:&gt;2}"
+        }
+        // C · 极简：10 列短行
+        (Display::Min, false) =&gt; "  {prefix:&lt;10} {spinner:.cyan} {elapsed:&gt;4.dim} {wide_msg:.dim}",
+        (Display::Min, true) =&gt; {
+            "  {prefix:&lt;10} {elapsed:&gt;4.dim} {bar:8.cyan/blue} {percent:&gt;3}%"
+        }
+    }
+}
+
+/// 底部整体条模板（C 档收窄宽度）
+fn overall_tpl(display: Display) -&gt; &amp;'static str {
+    match display {
+        Display::Min =&gt; "  整体 {bar:16.cyan/green} {percent:&gt;3}%",
+        _ =&gt; "  整体进度 {bar:26.cyan/green} {percent:&gt;3}%",
+    }
+}
+
+/// 底部整体条样式
+fn overall_style(display: Display) -&gt; ProgressStyle {
+    ProgressStyle::with_template(overall_tpl(display))
+        .expect("整体条模板是静态合法模板")
         .progress_chars("━╸─")
+}
+
+/// 按显示宽度把字符串右补空格到指定列宽（超宽则原样返回，交由 wide_msg/终端裁剪）
+pub fn pad_width(s: &amp;str, w: usize) -&gt; String {
+    let d = UnicodeWidthStr::width(s);
+    if d &gt;= w {
+        s.to_string()
+    } else {
+        format!("{}{}", s, " ".repeat(w - d))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_arg_aliases() {
+        assert_eq!(Display::from_arg("a"), Some(Display::Ledger));
+        assert_eq!(Display::from_arg("A"), Some(Display::Ledger));
+        assert_eq!(Display::from_arg("ledger"), Some(Display::Ledger));
+        assert_eq!(Display::from_arg("b"), Some(Display::Lite));
+        assert_eq!(Display::from_arg("lite"), Some(Display::Lite));
+        assert_eq!(Display::from_arg("C"), Some(Display::Min));
+        assert_eq!(Display::from_arg("minimal"), Some(Display::Min));
+        assert_eq!(Display::from_arg("x"), None);
+        assert_eq!(Display::from_arg(""), None);
+    }
+
+    #[test]
+    fn pad_width_arena() {
+        assert_eq!(pad_width("pi", 6), "pi    ");
+        let padded = pad_width("检查并升级 pi-web", 20);
+        assert_eq!(UnicodeWidthStr::width(padded.as_str()), 20);
+        // 超宽不额外截断：交给 wide_msg / 终端负责
+        let wide = pad_width("pi-web1234567890123456", 20);
+        assert_eq!(UnicodeWidthStr::width(wide.as_str()), 22);
+    }
+
+    #[test]
+    fn all_row_templates_parse() {
+        // 六张步骤行模板 + 三张整体条模板必须全部合法，避免运行期 panic
+        for d in [Display::Ledger, Display::Lite, Display::Min] {
+            for det in [false, true] {
+                let tpl = run_tpl(d, det);
+                let sty = ProgressStyle::with_template(tpl)
+                    .unwrap_or_else(|e| panic!("模板解析失败 {tpl:?}: {e}"));
+                let _ = if det {
+                    sty.progress_chars("━╸─")
+                } else {
+                    sty.tick_chars("⠋⠙")
+                };
+            }
+            let _ = overall_style(d);
+        }
+    }
 }
 </code></pre>
     </div>
@@ -1926,7 +2163,7 @@ use std::time::Duration;
 use steps::{
     step_pi_cli, step_pi_update, step_pi_web, step_pi_web_upgrade, step_preflight, WebStart,
 };
-use ui::{Mode, Ui};
+use ui::{Display, Mode, Ui};
 use unicode_width::UnicodeWidthStr;
 
 const DEFAULT_PORT: u16 = 30141;
@@ -1940,6 +2177,7 @@ const BANNER_TITLE_TEXT: &amp;str = "Pi Agent 批量自动化启动工具";
 
 struct Args {
     mode: Mode,
+    display: Display,
     spin: Option&lt;String&gt;,
     force_tty: bool,
 }
@@ -1947,6 +2185,7 @@ struct Args {
 fn parse_args() -&gt; Args {
     let mut args = Args {
         mode: Mode::Normal,
+        display: Display::Ledger,
         spin: None,
         force_tty: false,
     };
@@ -1959,6 +2198,19 @@ fn parse_args() -&gt; Args {
             "--spin" =&gt; {
                 if let Some(name) = it.next() {
                     args.spin = Some(name);
+                }
+            }
+            "--display" =&gt; {
+                let val = it.next().unwrap_or_default();
+                match Display::from_arg(&amp;val) {
+                    Some(d) =&gt; args.display = d,
+                    None =&gt; {
+                        println!(
+                            "  未知显示模式 '{}'（--display 可选 A|B|C，即 ledger|lite|min）",
+                            val
+                        );
+                        process::exit(1);
+                    }
                 }
             }
             "-h" | "--help" =&gt; {
@@ -1981,9 +2233,15 @@ fn print_help() {
     println!("  Pi Agent 启动器：环境预检 → pi update → 检查并升级 pi-web →");
     println!("                  启动 pi-web（后台常驻）→ 启动 Pi CLI");
     println!();
-    println!("  用法：pi-launcher [--quiet] [--spin &lt;名字&gt;] [--force-tty]");
+    println!("  用法：pi-launcher [--quiet] [--display &lt;A|B|C&gt;] [--spin &lt;名字&gt;] [--force-tty]");
     println!("    （无参数）             正常模式：输出 + 动画 + pi CLI + 结束停留（30 秒自动关）");
     println!("    --quiet / -q / --auto  安静模式：零输出、跳过 pi CLI、失败/完成都自动关窗");
+    println!(
+        "    --display &lt;A|B|C&gt;      显示模式：A=工作账·一步一行（默认）B=轻修·分栏仪表 C=极简·一行流"
+    );
+    println!(
+        "                           （别名均可：a/b/c、ledger/lite/min；quiet 与非终端下无效）"
+    );
     println!(
         "    --spin &lt;名字&gt;          指定右侧动画（循环池：{}）",
         ui::anim_pool()
@@ -2063,7 +2321,13 @@ fn boot_pipeline(ui: &amp;mut Ui, host: &amp;str, port: u16) -&gt; Result&lt;Web
 // ────────────────────────────────────────────────────────────────
 
 fn run_quiet(host: String, port: u16) -&gt; i32 {
-    let mut ui = Ui::init(Mode::Quiet, false, None, steps::TOTAL_STEPS);
+    let mut ui = Ui::init(
+        Mode::Quiet,
+        Display::Ledger, // quiet 零输出，显示模式不参与渲染
+        false,
+        None,
+        steps::TOTAL_STEPS,
+    );
     ui::log("启动模式：安静（--quiet；零输出、跳过 pi CLI、自动关窗）");
 
     println!("  pi-launcher（--quiet）：静默启动中，完成后窗口自动关闭。");
@@ -2092,15 +2356,17 @@ fn run_quiet(host: String, port: u16) -&gt; i32 {
 fn run_normal(args: &amp;Args, host: String, port: u16) -&gt; i32 {
     let mut ui = Ui::init(
         Mode::Normal,
+        args.display,
         args.force_tty,
         args.spin.as_deref(),
         steps::TOTAL_STEPS,
     );
     ui::log("启动模式：正常（pi CLI 交互 + 结束停留）");
-    print_banner(&amp;ui);
+    print_banner(&amp;ui, args.display);
 
     match boot_pipeline(&amp;mut ui, &amp;host, port) {
         Err(code) =&gt; {
+            // 失败：整体条收场，凝固行（含 ✗ 行）保留在屏幕上供停屏观察
             ui.overall_finish();
             wait_and_exit(code);
         }
@@ -2114,43 +2380,73 @@ fn run_normal(args: &amp;Args, host: String, port: u16) -&gt; i32 {
         wait_and_exit(5);
     }
 
+    // 成功收尾：撤掉活动渲染并把账目行原样重放，让收尾信息排在账目之后
+    ui.replay_ledger();
     ui.message(&amp;format!("  📝 本次启动日志：{}", ui::log_path()));
     ui.message("  ✓ 全部步骤完成。");
     wait_and_exit(0)
 }
 
-fn print_banner(ui: &amp;Ui) {
-    // 用显示宽度对齐方框，避免中英混排导致右边框错位
-    let title = format!("{} v{}", BANNER_TITLE_TEXT, ui::VERSION);
-    let inner = 42usize;
-    let pad = inner.saturating_sub(UnicodeWidthStr::width(title.as_str()));
-    let left = pad / 2;
-    let right = pad - left;
+/// 开场画面：按显示模式分三档绘制（对齐一律走显示宽度，防中英混排错位）
+fn print_banner(ui: &amp;Ui, display: Display) {
+    let anim_text: Option&lt;String&gt; = ui
+        .anim_label()
+        .map(|(i, name)| (i, name, ui::anim_pool().len()))
+        .map(|(i, name, n)| format!("动画 {} · 池 {}/{} 组", name, i + 1, n));
 
-    ui.message("");
-    ui.message(&amp;format!("  ╔{}╗", "═".repeat(inner)));
-    ui.message(&amp;format!(
-        "  ║{}{}{}║",
-        " ".repeat(left),
-        title,
-        " ".repeat(right)
-    ));
-    ui.message(&amp;format!("  ╚{}╝", "═".repeat(inner)));
-    if let Some((i, name)) = ui.anim_label() {
-        ui.message(&amp;format!(
-            "  本次动画：{}（池 {}/{} 组 · --spin &lt;名字&gt; 可指定）",
-            name,
-            i + 1,
-            ui::anim_pool().len()
-        ));
+    match display {
+        Display::Min =&gt; {
+            ui.message("");
+            let head = match &amp;anim_text {
+                Some(a) =&gt; format!(
+                    "  {} {} · {}",
+                    console::style("pi-launcher").bold(),
+                    console::style(&amp;format!("v{}", ui::VERSION)).dim(),
+                    a
+                ),
+                None =&gt; format!(
+                    "  {} {}",
+                    console::style("pi-launcher").bold(),
+                    console::style(&amp;format!("v{}", ui::VERSION)).dim()
+                ),
+            };
+            ui.message(&amp;head);
+            ui.message("");
+        }
+        Display::Lite =&gt; {
+            ui.message("");
+            let title = format!("{} · v{}", BANNER_TITLE_TEXT, ui::VERSION);
+            let inner = 46usize;
+            let body = ui::pad_width(&amp;format!(" {}", title), inner);
+            ui.message(&amp;format!("  ╭{}╮", "─".repeat(inner)));
+            ui.message(&amp;format!("  │{}│", body));
+            ui.message(&amp;format!("  ╰{}╯", "─".repeat(inner)));
+            if let Some(a) = &amp;anim_text {
+                ui.message(&amp;format!("  {}（--spin &lt;名字&gt; 可指定）", console::style(a).dim()));
+            }
+            ui.message("");
+        }
+        Display::Ledger =&gt; {
+            ui.message("");
+            let left = format!("PI LAUNCHER · v{}", ui::VERSION);
+            let cols = 78usize;
+            if let Some(a) = &amp;anim_text {
+                let gap = cols
+                    .saturating_sub(UnicodeWidthStr::width(left.as_str()))
+                    .saturating_sub(UnicodeWidthStr::width(a.as_str()))
+                    .max(2);
+                ui.message(&amp;format!(
+                    "  {}{}{}",
+                    console::style(&amp;left).bold(),
+                    " ".repeat(gap),
+                    console::style(a).dim()
+                ));
+            } else {
+                ui.message(&amp;format!("  {}", console::style(&amp;left).bold()));
+            }
+            ui.message(&amp;format!("  {}", console::style("─".repeat(cols)).dim()));
+        }
     }
-    ui.message("");
-    ui.message("  将依次执行：");
-    ui.message("    1. 环境预检");
-    ui.message("    2. pi update --all");
-    ui.message("    3. 检查并升级 pi-web");
-    ui.message("    4. 启动 pi-web（后台常驻）");
-    ui.message("    5. 启动 Pi CLI（前台交互）");
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -2292,6 +2588,7 @@ fn spawn_supervisor(mut child: Child, host: String, port: u16) {
         <tbody>
           <tr><td><code>pi-launcher</code></td><td>正常模式：banner + 动画进度 + Pi CLI 交互 + 30 秒倒计时关窗</td></tr>
           <tr><td><code>pi-launcher --quiet</code>（<code>-q</code> / <code>--auto</code>）</td><td>安静模式：仅 2 行提示（含日志路径），跳过 Pi CLI，成功/失败自动关窗；supervisor 照常</td></tr>
+          <tr><td><code>pi-launcher --display &lt;A|B|C&gt;</code></td><td>显示模式：A=工作账·一步一行、完成即凝固（默认）；B=轻修·分栏仪表；C=极简·一行流。别名 <code>a/b/c</code>、<code>ledger/lite/min</code> 均可，大小写不敏感；非法值退出码 1 并列出可选项；quiet 与非终端下无效</td></tr>
           <tr><td><code>pi-launcher --spin &lt;名字&gt;</code></td><td>固定右侧动画；池内可选 dots / dots2 / grow / moon / clock / hourglass</td></tr>
           <tr><td><code>pi-launcher -h</code> / <code>--help</code></td><td>打印用法与退出码表</td></tr>
           <tr><td><code>pi-launcher --force-tty</code></td><td>调试用：非终端环境强制走动画渲染路径</td></tr>
@@ -2399,7 +2696,7 @@ panic = "abort"</code></pre>
     </section>
 
     <footer>
-      Pi Agent 批量自动化启动工具 · Rust 实现文档 · v1.0.0
+      Pi Agent 批量自动化启动工具 · Rust 实现文档 · v1.1.0
     </footer>
 
   </main>

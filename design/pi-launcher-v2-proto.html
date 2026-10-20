@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pi-launcher · CLI 输出层规格（v1.1.0 已实装）</title>
+<style>
+/* ════════════════════════════════════════════════════════════════
+   pi-launcher CLI 输出层 视觉原型 v2
+   目标：评审【终端内的画面】，不是网页样式。
+   手法：每张终端卡按 80 列等宽网格排版（grid + ch 单元格），
+         ANSI 色取 Windows Terminal 默认 16 色，spinner 为真帧动画。
+   ════════════════════════════════════════════════════════════════ */
+:root {
+  --bg:      hsl(222 30% 7%);
+  --surface: hsl(222 26% 10%);
+  --surface2:hsl(222 24% 13%);
+  --line:    hsl(220 18% 20%);
+  --ink:     hsl(220 22% 84%);
+  --ink-dim: hsl(220 14% 56%);
+  --ink-fnt: hsl(220 12% 40%);
+
+  /* ANSI（Windows Terminal 默认色板近似） */
+  --ok:   hsl(105 89% 41%);    /* bright green  #16c60c */
+  --err:  hsl(348 76% 60%);    /* bright red    #e74856 */
+  --warn: hsl(43 78% 57%);     /* 黄（页面级）  */
+  --run:  hsl(217 91% 62%);    /* app 蓝        #3b78ff */
+  --twarn:hsl(48 84% 82%);     /* bright yellow #f9f1a5 */
+
+  /* 终端卡内部 */
+  --t-bg:  hsl(0 0% 4.7%);     /* #0c0c0c */
+  --t-bar: hsl(220 8% 13%);
+  --t-txt: hsl(0 0% 80%);
+  --t-dim: hsl(0 0% 46%);
+  --t-edge:hsl(220 10% 22%);
+
+  --sans: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+
+  --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-6: 24px; --s-8: 32px; --s-12: 48px; --s-16: 64px;
+  --r-1: 6px; --r-2: 10px; --r-full: 999px;
+  --sh-sm: 0 1px 2px rgb(0 0 0 / .35), 0 2px 6px rgb(0 0 0 / .25);
+  --sh-md: 0 2px 4px rgb(0 0 0 / .4), 0 8px 20px rgb(0 0 0 / .35);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--sans); font-size: 14px; line-height: 1.6;
+  color: var(--ink); background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: hsl(217 91% 62% / .35); }
+::focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: var(--r-full); }
+a { color: var(--run); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.wrap { max-width: 1060px; margin: 0 auto; padding: 0 var(--s-6); }
+.section { padding: var(--s-12) 0 var(--s-16); }
+.eyebrow {
+  font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--run); margin-bottom: 4px;
+}
+h2 { font-size: 22px; font-weight: 700; letter-spacing: -.01em; color: #fff; margin-bottom: 4px; }
+.lead { color: var(--ink-dim); max-width: 62ch; margin-bottom: var(--s-6); }
+.lead code { font-family: var(--mono); font-size: .92em; color: var(--ink); background: var(--surface2); padding: 1px 6px; border-radius: var(--r-1); }
+code.k { font-family: var(--mono); font-size: .92em; color: var(--run); background: var(--surface2); padding: 1px 6px; border-radius: var(--r-1); }
+
+/* ── 导航 ── */
+.nav {
+  position: sticky; top: 0; z-index: 50;
+  background: hsl(222 30% 7% / .9); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.nav-in { max-width: 1060px; margin: 0 auto; padding: 10px var(--s-6); display: flex; align-items: center; gap: var(--s-4); }
+.brand { font-weight: 700; color: #fff; font-size: 14px; }
+.brand .logo {
+  display: inline-grid; place-items: center; width: 24px; height: 24px; margin-right: 8px;
+  border-radius: var(--r-1); background: var(--run); color: #fff; font-family: var(--mono); font-size: 13px;
+  vertical-align: -6px;
+}
+.nav a.j { font-size: 13px; color: var(--ink-dim); font-weight: 600; padding: 3px 8px; border-radius: var(--r-1); }
+.nav a.j:hover { color: #fff; background: var(--surface2); text-decoration: none; }
+.nav .spacer { margin-left: auto; }
+.pill {
+  font-size: 12px; font-weight: 600; color: var(--warn);
+  background: hsl(43 78% 57% / .12); border: 1px dashed hsl(43 78% 57% / .45);
+  padding: 3px 10px; border-radius: var(--r-full); white-space: nowrap;
+}
+.kbd { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); }
+@media (max-width: 860px) { .nav a.j { display: none; } }
+
+/* ══════════════════ 终端卡（核心构件） ══════════════════ */
+.pair { display: grid; grid-template-columns: minmax(0, max-content) minmax(260px, 1fr); gap: var(--s-6); align-items: start; margin-bottom: var(--s-8); }
+@media (max-width: 980px) { .pair { grid-template-columns: 1fr; } }
+
+.term { width: fit-content; max-width: 100%; border-radius: var(--r-2); overflow: hidden; box-shadow: var(--sh-md), 0 0 0 1px var(--t-edge); }
+.term-scroll { overflow-x: auto; }
+.tbar {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--t-bar); padding: 5px 12px; font-size: 11.5px; color: var(--t-dim);
+}
+.tbar .dots { display: flex; gap: 5px; }
+.tbar .dots i { width: 9px; height: 9px; border-radius: 50%; background: hsl(0 0% 34%); }
+.tbar .t { font-family: var(--mono); }
+.tbar .w { margin-left: auto; letter-spacing: 4px; color: hsl(0 0% 40%); }
+
+/* 80 列画布：ch 单位随实际等宽字体自适应，网格总宽 = 80ch */
+.scr {
+  width: 80ch; padding: var(--s-3) var(--s-4);
+  background: var(--t-bg); color: var(--t-txt);
+  font-family: var(--mono); font-size: 13px; line-height: 1.75;
+}
+.ln { display: grid; align-items: baseline; column-gap: 1ch; white-space: pre; overflow: hidden; }
+.ln.raw { display: block; }
+.gap { height: 1.55em; }
+.rule { height: 0; border-top: 1px solid hsl(0 0% 100% / .10); margin: .55em 0; }
+
+/* 颜色 role */
+.ok   { color: var(--ok); }
+.err  { color: var(--err); font-weight: 700; }
+.tw   { color: var(--twarn); }
+.run  { color: var(--run); }
+.dim  { color: var(--t-dim); }
+.drk  { color: hsl(0 0% 33%); }
+.wht  { color: #fff; font-weight: 700; }
+.path { color: hsl(195 70% 62%); }
+
+/* 行模板：每行各列合计 + 间隙 = 80ch */
+/* A / 主步骤行：4 + 1 + 20 + 1 + 2 + 1 + 6 + 1 + 44 = 80 */
+.r-a { grid-template-columns: 4ch 20ch 2ch 6ch 44ch; }
+.r-a .c1 { color: var(--run); font-weight: 700; }
+.r-a.done .c1 { color: var(--t-dim); font-weight: 500; }
+.r-a .c2 { overflow: hidden; text-overflow: ellipsis; }
+.r-a.done .c2 { color: var(--t-dim); }
+.r-a .c4 { color: var(--t-dim); font-variant-numeric: tabular-nums; }
+.r-a .c5 { color: var(--t-dim); overflow: hidden; text-overflow: ellipsis; }
+.r-a.done .c5 { color: hsl(0 0% 58%); }
+
+/* A / 子行（缩进到 detail 列起点 = 36ch） */
+.r-sub { grid-template-columns: 36ch 1fr; column-gap: 0; }
+.r-sub > span { color: var(--t-dim); overflow: hidden; text-overflow: ellipsis; }
+
+/* 顶部标题带 */
+.r-band { grid-template-columns: 1fr auto; }
+.r-band .l { letter-spacing: .04em; }
+
+/* 整体进度行：8 + 1 + 24 + 1 + 46 = 80 */
+.r-cnt { grid-template-columns: 8ch 24ch 1fr; }
+.r-cnt .c3 { text-align: right; color: hsl(0 0% 70%); font-style: italic; }
+.bf { color: var(--run); }
+.bt { color: hsl(0 0% 26%); }
+
+/* 底部状态行 */
+.r-foot { grid-template-columns: 1fr auto; color: var(--t-dim); }
+
+/* B 行：5 + 1 + 19 + 1 + 15 + 1 + 2 + 1 + 6 + 1 + 28 = 80 */
+.r-b { grid-template-columns: 5ch 19ch 15ch 2ch 6ch 28ch; }
+.r-b .c1 { color: var(--t-dim); }
+.r-b .c2 { color: var(--t-txt); overflow: hidden; text-overflow: ellipsis; }
+.r-b .c3 { color: hsl(0 0% 26%); overflow: hidden; white-space: nowrap; }
+.r-b .c5 { color: var(--t-dim); font-variant-numeric: tabular-nums; }
+.r-b .c6 { color: var(--t-dim); overflow: hidden; text-overflow: ellipsis; }
+.r-a.idle .c1 { color: hsl(0 0% 33%); }
+.r-a.idle .c5 { color: hsl(0 0% 33%); }
+
+/* B 行状态：待机整行降灰（v1.1.0 实装后行不预占，样式留作历史备档） */
+.r-b.idle .c2 { color: hsl(0 0% 33%); }
+
+/* C 行：极简单行流（两种模板） */
+.r-c1 { display: block; white-space: pre; overflow: hidden; }
+.r-c2 { grid-template-columns: 3ch 8ch 2ch 6ch 57ch; }
+.r-c2 .c1 { color: var(--t-dim); }
+.r-c2 .c2 { color: var(--t-txt); }
+.r-c2 .c4 { color: var(--t-dim); font-variant-numeric: tabular-nums; }
+.r-c2 .c5 { color: var(--t-dim); }
+
+/* 状态字符 */
+.st-ok { color: var(--ok); font-weight: 700; }
+.st-err { color: var(--err); font-weight: 700; }
+.st-tw { color: var(--twarn); font-weight: 700; }
+.st-run { color: var(--run); font-weight: 700; }
+.st-idle { color: hsl(0 0% 33%); }
+
+/* spinner：真帧动画（dots 组） */
+.spin::after {
+  content: "⠋"; color: var(--run); font-weight: 700;
+  animation: dotsframes .9s steps(1) infinite;
+}
+@keyframes dotsframes {
+  0%{content:"⠋"} 10%{content:"⠙"} 20%{content:"⠹"} 30%{content:"⠸"}
+  40%{content:"⠼"} 50%{content:"⠴"} 60%{content:"⠦"} 70%{content:"⠧"}
+  80%{content:"⠇"} 90%{content:"⠏"}
+}
+@media (prefers-reduced-motion: reduce) { .spin::after { content: "⠸"; animation: none; } }
+
+/* 方框 banner（网格保证 ║ 对齐，无视 CJK 宽度差异） */
+.banner { display: grid; grid-template-columns: 3ch var(--bw) 2ch; white-space: pre; }
+.banner .mid { overflow: hidden; }
+
+/* v1 现状重演卡内普通文本行 */
+.b-row { white-space: pre; overflow: hidden; }
+
+/* ── 卡外侧注释 ── */
+.note h3 { font-size: 14px; color: #fff; font-weight: 700; margin-bottom: 6px; }
+.note .tag {
+  display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em;
+  color: var(--run); background: hsl(217 91% 62% / .14); padding: 2px 8px;
+  border-radius: var(--r-full); margin-bottom: 10px; vertical-align: 2px;
+}
+.note ul { list-style: none; }
+.note li { padding: 7px 0 7px 18px; position: relative; color: var(--ink-dim); font-size: 13px; border-top: 1px solid var(--line); }
+.note li:first-child { border-top: none; }
+.note li::before { content: "—"; position: absolute; left: 0; color: var(--ink-fnt); }
+.note li b { color: var(--ink); font-weight: 600; }
+.note .warn-li::before { content: "⚠"; color: var(--warn); font-size: 11px; top: 1px; }
+
+/* 痛点标注 */
+.pains { margin-top: var(--s-4); }
+.pains li::before { content: none; }
+.pains .pn {
+  display: inline-grid; place-items: center; width: 18px; height: 18px; margin-right: 8px;
+  border-radius: var(--r-full); background: hsl(43 78% 57% / .15); color: var(--warn);
+  font-size: 11px; font-weight: 700; vertical-align: -4px;
+}
+.pains li { color: var(--ink-dim); }
+.pains b { color: var(--ink); }
+
+/* ── 符号系统 ── */
+.sys { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: var(--s-4); }
+@media (max-width: 860px) { .sys { grid-template-columns: repeat(2, 1fr); } }
+.sysc {
+  background: var(--surface); border-radius: var(--r-2); padding: var(--s-4);
+  box-shadow: var(--sh-sm), 0 0 0 1px var(--line);
+}
+.sysc .g { font-family: var(--mono); font-size: 22px; height: 30px; }
+.sysc b { color: #fff; font-size: 13px; display: block; margin: 2px 0 4px; }
+.sysc p { font-size: 12px; color: var(--ink-fnt); line-height: 1.6; }
+
+.swr { margin-top: var(--s-6); display: flex; flex-wrap: wrap; gap: var(--s-6); }
+.sw { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 12px; color: var(--ink-dim); }
+.sw i { width: 14px; height: 14px; border-radius: 4px; box-shadow: 0 0 0 1px hsl(0 0% 100% / .15); }
+
+/* footer */
+footer { border-top: 1px solid var(--line); padding: var(--s-6) 0 var(--s-12); color: var(--ink-fnt); font-size: 13px; }
+footer .fin { max-width: 1060px; margin: 0 auto; padding: 0 var(--s-6); display: flex; gap: var(--s-4); flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ 导航 ═══════════ -->
+<nav class="nav">
+  <div class="nav-in">
+    <span class="brand"><span class="logo">π</span>pi-launcher · CLI 输出层规格</span>
+    <a class="j" href="#v1">现状 v1</a>
+    <a class="j" href="#spec">--display 参数</a>
+    <a class="j" href="#a">A 工作账</a>
+    <a class="j" href="#a-states">状态全家</a>
+    <a class="j" href="#b">B 轻修</a>
+    <a class="j" href="#c">C 极简</a>
+    <a class="j" href="#sys">符号系统</a>
+    <span class="spacer"></span>
+    <span class="pill">v1.1.0 已实装</span>
+  </div>
+</nav>
+
+<!-- ═══════════ 导语 ═══════════ -->
+<section class="section" style="padding-top: var(--s-8)">
+  <div class="wrap">
+    <div class="eyebrow">Scope</div>
+    <h2>改的是终端里那块画面，流程一行代码不动</h2>
+    <p class="lead">
+      改造范围仅限输出层模板：五步流程、退出码 0–5、日志、supervisor 全不变。
+      以下每张卡＝<b>80 列等宽</b>模拟（网格排，CJK 宽差不影响对齐），
+      颜色用 Windows Terminal 默认色板，spinner 是真实帧动画。
+      <b style="color: var(--ink)">v1.1.0 已实装</b>
+      ——三档全部落地，由 <code class="k">--display</code> 参数切换，预设 A。
+    </p>
+  </div>
+</section>
+
+<!-- ═══════════ §1 参数规格 ═══════════ -->
+<section id="spec" class="section" style="padding-top: var(--s-4)">
+  <div class="wrap">
+    <div class="eyebrow">新增参数 · 已实装（v1.1.0）</div>
+    <h2>--display &lt;A|B|C&gt;：显示模式，三档各成一体</h2>
+    <p class="lead">
+      不再是三选一的提案，而是<b>运行参数</b>。同一套行凝固引擎，六张行模板 + 三张开场按档切换。
+    </p>
+    <div class="pair">
+      <div class="term">
+        <div class="tbar"><span class="dots"><i></i><i></i><i></i></span><span class="t">cmd — 参数行为实录</span><span class="w">─ ▢ ✕</span></div>
+        <div class="term-scroll"><div class="scr">
+          <div class="b-row"><span class="dim">$</span> pi-launcher <span class="c3">--display b</span></div>
+          <div class="b-row">  <span class="dim">（以 B 轻修版式运行，开场为圆角细框）</span></div>
+          <div class="gap"></div>
+          <div class="b-row"><span class="dim">$</span> pi-launcher <span class="c3">--display ledger</span></div>
+          <div class="b-row">  <span class="dim">（别名等效，即 A 工作账）</span></div>
+          <div class="gap"></div>
+          <div class="b-row"><span class="dim">$</span> pi-launcher <span class="err">--display x</span></div>
+          <div class="b-row">  未知显示模式 'x'<span class="err">（--display 可选 A|B|C，即 ledger|lite|min）</span></div>
+          <div class="b-row">  <span class="dim">（print 后退出码 1，流程不启动）</span></div>
+        </div></div>
+      </div>
+      <div class="note">
+        <span class="tag">规格</span>
+        <h3>参数细则</h3>
+        <ul>
+          <li><b>取值：</b><code class="k">A|B|C</code>（大小写不敏感）；别名 <code class="k">a/b/c</code>、<code class="k">ledger/lite/min</code>。</li>
+          <li><b>预设：</b>不给参数即 <b>A 工作账</b>。</li>
+          <li><b>非法值：</b>列出可选项后退出码 1，流程不启动。</li>
+          <li><b>边界：</b><code>--quiet</code> 与非终端（管道/CI）下无效——退化为既有纯文字/零输出路径，与显示模式无关。</li>
+          <li><b>实现落点：</b><code class="k">ui.rs</code>（Display 枚举 + 模板 + 重放）与 <code class="k">main.rs</code>（解析 + 开场）；<code class="k">steps.rs</code> 仅传行内短名。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ §0 现状 v1 ═══════════ -->
+<section id="v1" class="section" style="padding-top: var(--s-4)">
+  <div class="wrap">
+    <div class="eyebrow">Baseline · 现状 v1</div>
+    <h2>先复现现状，找到撞墙的点</h2>
+    <p class="lead">开场 17 行里，真正在「干活」的只有最后 1 行。每一步是 header 行 + bar 行 + 完成再另起 ✓ 行——三处展示同一件事。</p>
+    <div class="pair">
+      <div class="term">
+        <div class="tbar"><span class="dots"><i></i><i></i><i></i></span><span class="t">Windows Terminal — pi-launcher（现状）</span><span class="w">─ ▢ ✕</span></div>
+        <div class="term-scroll"><div class="scr">
+          <div class="gap"></div>
+          <div class="banner" style="--bw: 44ch">
+            <span>  ╔</span><span class="mid">════════════════════════════════════════════</span><span>╗</span>
+            <span>  ║</span><span class="mid">  Pi Agent 批量自动化启动工具 v1.0.0      </span><span>║</span>
+            <span>  ╚</span><span class="mid">════════════════════════════════════════════</span><span>╝</span>
+          </div>
+          <div class="b-row">  本次动画：dots（池轮换 3/6 组 · --spin 可固定）</div>
+          <div class="gap"></div>
+          <div class="b-row">  将依次执行：</div>
+          <div class="b-row">    1. 环境预检</div>
+          <div class="b-row">    2. pi update --all</div>
+          <div class="b-row">    3. 检查并升级 pi-web</div>
+          <div class="b-row">    4. 启动 pi-web（后台常驻）</div>
+          <div class="b-row">    5. Pi CLI 交互界面</div>
+          <div class="gap"></div>
+          <div class="b-row">  <span class="dim">[1/5]</span> 环境预检</div>
+          <div class="b-row">    <span class="ok">✓</span> 命令 pi 已就绪</div>
+          <div class="b-row">    <span class="ok">✓</span> 命令 pi-web 已就绪</div>
+          <div class="b-row">    <span class="ok">✓</span> 命令 npm 已就绪</div>
+          <div class="b-row">    <span class="ok">✓</span> pi / pi-web / npm 全部就绪 <span class="dim">(0.2s)</span></div>
+          <div class="gap"></div>
+          <div class="b-row">  <span class="dim">[2/5]</span> pi update --all</div>
+          <div class="b-row">    <span class="spin"></span> <span class="dim">正在更新 Pi 及扩展包… (12.4s)</span></div>
+          <div class="gap"></div>
+          <div class="b-row">  <span class="dim">整体进度</span>  <span class="bf">████████░░░░░░░░░░░░░░░░</span> <span class="dim">40%</span></div>
+        </div></div>
+      </div>
+      <div class="note pains">
+        <div class="tag">痛点</div>
+        <ul>
+          <li><span class="pn">1</span><b>大 banner 占 4 行</b>，标题信息一行业能放下，其余是装饰性重复。</li>
+          <li><span class="pn">2</span><b>「将依次执行」7 行全是预告</b>——步骤自己会报状态，预告行等流程跑完就作废。</li>
+          <li><span class="pn">3</span><b>一步用 2–3 行</b>：header 行 + 进度行 + 完成行；5 步流程被撑到 30+ 行，真正的工作密度被稀释。</li>
+          <li><span class="pn">4</span><b>符号混载</b>：✓ 承担「就绪/更新完/启动完」三种语义，失败时 stderr 直接砸屏幕，没有统一层级。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ §A 工作账 ═══════════ -->
+<section id="a" class="section">
+  <div class="wrap">
+    <div class="eyebrow">模式 A · 预设 · 已实装</div>
+    <h2>工作账 Ledger：一步一行，行即事实</h2>
+    <p class="lead">
+      每个步骤<b>只有一行</b>：进行中实时刷新（spinner / 进度条 + elapsed + 当前动作），
+      完成后在原位凝固为 <span class="ok">✓</span> + 结论。信息只增不改位置，视线不需要回跳。
+      v1.1.0 起<b>这就是默认画面</b>；行只在所属步骤开始时出现，不预占空行。
+    </p>
+
+    <div class="pair">
+      <div class="term">
+        <div class="tbar"><span class="dots"><i></i><i></i><i></i></span><span class="t">Windows Terminal — pi-launcher（模式 A · --display a · 进行中）</span><span class="w">─ ▢ ✕</span></div>
+        <div class="term-scroll"><div class="scr">
+          <div class="gap r-band ln">
+            <span class="l wht">PI LAUNCHER · v1.1.0</span><span class="dim">动画 dots · 池 3/6 组</span>
+          </div>
+          <div class="rule"></div>
+          <div class="ln r-a done">
+            <span class="c1">1/5</span><span class="c2">环境预检</span><span class="st-ok">✓</span><span class="c4">0.2s</span><span class="c5">pi · pi-web · npm 全部就绪</span>
+          </div>
+          <div class="ln r-a done">
+            <span class="c1">2/5</span><span class="c2">pi update --all</span><span class="st-ok">✓</span><span class="c4">5.6s</span><span class="c5">Pi 及所有扩展包更新完成</span>
+          </div>
+          <div class="ln r-a done">
+            <span class="c1">3/5</span><span class="c2">检查并升级 pi-web</span><span class="st-ok">✓</span><span class="c4">0.8s</span><span class="c5">registry 最新 v0.12.2</span>
+          </div>
+          <div class="ln r-a">
+            <span class="c1">4/5</span><span class="c2">启动 pi-web（后台）</span><span class="c4">12.4s</span><span class="c5">等待就绪 <span class="bf">███████</span><span class="bt">░░░░░</span> 62% eta:22</span>
+          </div>
+          <div class="rule"></div>
+          <div class="ln r-cnt">
+            <span class="dim">整体进度</span><span><span class="bf">██████████</span><span class="bt">░░░░░░░░░░░░░░</span></span><span class="c3">40% · 3.5/5 步</span>
+          </div>
+          <div class="gap"></div>
+          <div class="ln r-foot">
+            <span>按 Enter 立即关窗</span><span>30s 无操作自动关窗</span>
+          </div>
+        </div></div>
+      </div>
+      <div class="note">
+        <span class="tag">已实装（v1.1.0）</span>
+        <h3>Rust 端怎么落的</h3>
+        <ul>
+          <li><b>行凝固引擎：</b>在 <code class="k">ui.rs</code>——每步一行挂在 <code>MultiProgress</code> 上，用 <code>insert(idx-1)</code> 把步骤行插到整体条上方，<b>整体条钉死屏幕底部</b>；完成瞬间该行原位换成静态 ✓/✗ 文本并停刷（URL 等结论并入结论列）。</li>
+          <li><b>收尾重放：</b>成功路径 <code>replay_ledger()</code> 先撤场全部渲染，再按序把凝固行重放为普通行——日志路径与「✓ 全部步骤完成」自然排在账目之后。</li>
+          <li><b>列宽纪律：</b>编码+名称整体 25 列（A）/26（B）/10（C），unicode-width 补位；非 TTY 自动退化为逐行打印，quiet 零输出不受影响。</li>
+          <li><b>体积：</b>实测 408,064 bytes（基线 399,360 → <b>+2.2%</b>，新基线已记入 AGENTS.md）。</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- A 的状态全家 -->
+    <div id="a-states" style="margin-top: var(--s-12)">
+      <div class="eyebrow">三档 · 状态全家</div>
+      <h2>同一套语言，四种局面 × 三档行型</h2>
+      <p class="lead">完成、失败、安静、纯文字——四种局面在同一套符号语言里，只是状态字符与颜色不同。下图看模式 A；B / C 的同局面行型在最后两张卡。</p>
+
+      <div class="pair">
+        <div class="term">
+          <div class="tbar"><span class="dots"><i></i><i></i><i></i></span><span class="t">A · 完成后 30 秒倒计时</span><span class="w">─ ▢ ✕</span></div>
+          <div class="term-scroll"><div class="scr">
+            <div class="ln r-a done"><span class="c1">1/5</span><span class="c2">环境预检</span><span class="st-ok">✓</span><span class="c4">0.2s</span><span class="c5">pi · pi-web · npm 全部就绪</span></div>
+            <div class="ln r-a done"><span class="c1">2/5</span><span class="c2">pi update --all</span><span class="st-ok">✓</span><span class="c4">5.6s</span><span class="c5">Pi 及所有扩展包更新完成</span></div>
+            <div class="ln r-a done"><span class="c1">3/5</span><span class="c2">检查并升级 pi-web</span><span class="st-ok">✓</span><span class="c4">0.8s</span><span class="c5">registry 最新 v0.12.2</span></div>
+            <div class="ln r-a done"><span class="c1">4/5</span><span class="c2">启动 pi-web（后台）</span><span class="st-ok">✓</span><span class="c4">9.8s</span><span class="c5">HTTP 就绪 · 已脱离运行</span></div>
+            <div class="ln r-sub"><span></span><span>└ http://127.0.0.1:30141 · pid 7124</span></div>
+            <div class="ln r-a done"><span class="c1">5/5</span><span class="c2">Pi CLI</span><span class="st-ok">✓</span><span class="c4">6.1s</span><span class="c5">交互结束</span></div>
+            <div class="rule"></div>
+            <div class="ln r-cnt">
+              <span class="dim">整体进度</span><span><span class="ok">████████████████████████</span></span><span class="c3">100% · 22.1s</span>
+            </div>
+            <div class="gap"></div>
+            <div class="ln r-foot">
+              <span><span class="ok">✓</span> <span class="wht">全部完成</span><span class="dim">（pi-web 已脱离，关窗不影响）</span></span>
+              <span>28s <span class="run">███████████</span><span class="bt">░</span></span>
+            </div>
+          </div></div>
+        </div>
+        <div class="note">
+          <h3>完成 + 倒计时</h3>
+          <ul>
+            <li>底部行就是 <b>关窗倒计时</b>：进度块每秒少一格，Enter 立即关，窗口自然吸睛但不骚扰。</li>
+            <li>pi-web「已脱离运行」是<b>常驻承诺</b>：真的关窗日志照在，承诺可信。</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="pair">
+        <div class="term">
+          <div class="tbar"><span class="dots"><i></i><i></i><i></i></span><span class="t">A · 失败（退出码 2）</span><span class="w">─ ▢ ✕</span></div>
+          <div class="term-scroll"><div class="scr">
+            <div class="ln r-a done"><span class="c1">1/5</span><span class="c2">环境预检</span><span class="st-ok">✓</span><span class="c4">0.2s</span><span class="c5">pi · pi-web · npm 全部就绪</span></div>
+            <div class="ln r-a" >
+              <span class="c1" style="color: var(--err)">2/5</span><span class="c2">pi update --all</span><span class="st-err">✗</span><span class="c4">3.1s</span><span class="c5" style="color: var(--err)">退出码 1 · stderr 摘要：</span>
+            </div>
+            <div class="ln r-sub"><span></span><span>└ npm error code ELOCKVERIFY</span></div>
+            <div class="ln r-sub"><span></span><span>└ npm error A complete log of this run：</span></div>
+            <div class="ln r-cnt">
+              <span class="dim">整体进度</span><span><span class="bf err" style="color: var(--err)">█████</span><span class="bt">░░░░░░░░░░░░░░░░░</span></span><span class="c3">20% · 中止于步骤 2</span>
+            </div>
+            <div class="gap"></div>
+            <div class="ln r-foot">
+              <span><span class="err">✗</span> <span class="wht">流程中止（退出码 2）</span></span><span>详单见日志 <span class="path">pi-launcher-8c1f.log</span></span>
+            </div>
+          </div></div>
+        </div>
+        <div class="note">
+          <h3>失败</h3>
+          <ul>
+            <li>红行只出现一次，<b>stderr 缩进为子行</b>（最多 3 行），嘈杂输出进日志——屏幕是摘要，日志是全貌。</li>
+            <li>底部行直接报<b>退出码</b>，计划任务调用方不用猜。失败时同样 30s 倒计时（现版行为）。</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="pair">
+        <div class="term">
+          <div class="tbar"><span class="dots"><i></i><i></i><i></i></span><span class="t">A · --quiet 计划任务</span><span class="w">─ ▢ ✕</span></div>
+          <div class="term-scroll"><div class="scr">
+            <div class="gap r-band ln">
+              <span class="l wht">PI LAUNCHER · --quiet</span><span class="dim">静默模式</span>
+            </div>
+            <div class="rule"></div>
+            <div class="ln r-c1"><span>日志 </span><span class="path">%LOCALAPPDATA%\pi-launcher\logs\pi-launcher-1a2b.log</span></div>
+            <div class="ln r-c1"><span class="dim">完成或失败都自动关窗 · 全程细节与证据在日志里</span></div>
+          </div></div>
+        </div>
+        <div class="note">
+          <h3>静默（三档共用）</h3>
+          <ul>
+            <li>quiet 的输出本就不随模式 A/B/C 变化——窗口里就这 <b>2–4 行</b>，与现版一致。</li>
+            <li>差异只在退出后的日志卷面：日志里仍是<b>完整行型</b>（含每步耗时）。</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="pair">
+        <div class="term">
+          <div class="tbar"><span class="dots"><i></i><i></i><i></i></span><span class="t">模式 B · 失败（退出码 2）</span><span class="w">─ ▢ ✕</span></div>
+          <div class="term-scroll"><div class="scr">
+            <div class="gap"></div>
+            <div class="b-row">  <span class="dim">╭ Pi Agent 批量自动化启动工具 · v1.1.0 ╮（圆角细框同开场）</span></div>
+            <div class="gap"></div>
+            <div class="ln r-b">
+              <span class="c1">[1/5]</span><span class="c2">环境预检</span><span class="c3">───────────────</span><span class="st-ok">✓</span><span class="c5">0.2s</span><span class="c6">pi · pi-web · npm 就绪</span>
+            </div>
+            <div class="ln r-b">
+              <span class="c1" style="color: var(--err)">[2/5]</span><span class="c2">pi update --all</span><span class="c3">───────────────</span><span class="st-err">✗</span><span class="c5">3.1s</span><span class="c6" style="color: var(--err)">退出码 1 · stderr 已去日志</span>
+            </div>
+            <div class="gap"></div>
+            <div class="b-row">  <span class="dim">整体进度</span>  <span class="bf" style="color: var(--err)">█████</span><span class="bt">░░░░░░░░</span> <span class="dim">20% · 中止于步骤 2（退出码 2）</span></div>
+          </div></div>
+        </div>
+        <div class="note">
+          <h3>B · 失败行型</h3>
+          <ul>
+            <li>与 A 同构：熔点行变红 ✓→✗，后续步骤行不再出现（因为不会发生）。</li>
+            <li>开场圆角框<b>不变</b>；底部整体条红块示意熔点位置。</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="pair">
+        <div class="term">
+          <div class="tbar"><span class="dots"><i></i><i></i><i></i></span><span class="t">模式 C · 完成 + 倒计时</span><span class="w">─ ▢ ✕</span></div>
+          <div class="term-scroll"><div class="scr">
+            <div class="gap"></div>
+            <div class="b-row"><span class="wht">pi-launcher</span> <span class="dim">v1.1.0 · 动画 dots（池 3/6 组）</span></div>
+            <div class="gap"></div>
+            <div class="ln r-c2">
+              <span class="c1 drk">1·</span><span class="c2">预检</span><span class="st-ok">✓</span><span class="c4">0.2s</span><span class="c5"></span>
+            </div>
+            <div class="ln r-c2">
+              <span class="c1 drk">2·</span><span class="c2">更新</span><span class="st-ok">✓</span><span class="c4">5.6s</span><span class="c5">扩展包更新完成</span>
+            </div>
+            <div class="ln r-c2">
+              <span class="c1 drk">3·</span><span class="c2">pi-web</span><span class="st-ok">✓</span><span class="c4">0.8s</span><span class="c5">v0.12.2 最新</span>
+            </div>
+            <div class="ln r-c2">
+              <span class="c1 drk">4·</span><span class="c2">启动</span><span class="st-ok">✓</span><span class="c4">9.8s</span><span class="c5">已脱离运行</span>
+            </div>
+            <div class="ln r-c2">
+              <span class="c1 drk">5·</span><span class="c2">CLI</span><span class="st-ok">✓</span><span class="c4">6.1s</span><span class="c5">交互结束</span>
+            </div>
+            <div class="gap"></div>
+            <div class="b-row">  <span class="ok">████████████████</span><span class="bt">░░░░░</span> <span class="dim">100% · 28s 后自动关窗</span></div>
+          </div></div>
+        </div>
+        <div class="note">
+          <h3>C · 完成行型</h3>
+          <ul>
+            <li>失败局面同构：✗ 红字 + 红块整体条，其余完全一致。</li>
+            <li>极简不等于丢承诺：「已脱离运行」仍写出来；细节照旧进日志。</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ §B 轻修 ═══════════ -->
+<section id="b" class="section">
+  <div class="wrap">
+    <div class="eyebrow">模式 B · 已实装</div>
+    <h2>轻修：保留「一步一节」，删掉冗余三件套</h2>
+    <p class="lead">
+      结构仍是熟悉的「步骤 header + 状态」节奏，但 banner 从厚框缩为 <b>3 行圆角细框 + 1 行信息</b>，
+      砍掉「将依次执行」，每步一行的行内用短竖线分隔状态。v1 的三处冗余全消。
+    </p>
+    <div class="pair">
+      <div class="term">
+        <div class="tbar"><span class="dots"><i></i><i></i><i></i></span><span class="t">Windows Terminal — pi-launcher（模式 B · --display b · 进行中）</span><span class="w">─ ▢ ✕</span></div>
+        <div class="term-scroll"><div class="scr">
+          <div class="gap"></div>
+          <div class="banner" style="--bw: 46ch">
+            <span>  ╭</span><span class="mid">──────────────────────────────────────────────</span><span>╮</span>
+            <span>  │</span><span class="mid"> Pi Agent 批量自动化启动工具 · v1.1.0          </span><span>│</span>
+            <span>  ╰</span><span class="mid">──────────────────────────────────────────────</span><span>╯</span>
+          </div>
+          <div class="b-row">  <span class="dim">动画 dots · 池 3/6 组（--spin 可固定）</span></div>
+          <div class="gap"></div>
+          <div class="ln r-b">
+            <span class="c1">[1/5]</span><span class="c2">环境预检</span><span class="c3">───────────────</span><span class="st-ok">✓</span><span class="c5">0.2s</span><span class="c6">pi · pi-web · npm 就绪</span>
+          </div>
+          <div class="ln r-b">
+            <span class="c1">[2/5]</span><span class="c2">pi update --all</span><span class="c3">───────────────</span><span class="st-ok">✓</span><span class="c5">5.6s</span><span class="c6">Pi 及扩展包更新完成</span>
+          </div>
+          <div class="ln r-b">
+            <span class="c1">[3/5]</span><span class="c2">检查并升级 pi-web</span><span class="c3">───────────────</span><span class="st-ok">✓</span><span class="c5">0.8s</span><span class="c6">registry v0.12.2 最新</span>
+          </div>
+          <div class="ln r-b">
+            <span class="c1">[4/5]</span><span class="c2">启动 pi-web（后台）</span><span class="c3">───────────────</span><span class="c5">12.4s</span><span class="c6">等待就绪 █████░░░ 62% eta:22</span>
+          </div>
+          <div class="gap"></div>
+          <div class="b-row">  <span class="dim">整体进度</span>  <span class="bf">███████</span><span class="bt">░░░░░░░░</span> <span class="dim">45%</span></div>
+          <div class="gap"></div>
+          <div class="b-row">  <span class="dim">按 Enter 立即关窗 · 30s 自动关窗</span></div>
+        </div></div>
+      </div>
+      <div class="note">
+        <span class="tag">已实装（v1.1.0）</span>
+        <h3>Rust 端怎么落的</h3>
+        <ul>
+          <li><b>与 A 共引擎：</b>同一个行凝固引擎，仅换模板字符串与开场三件（圆角框 + 信息行 + 空行）——<code>ProgressStyle</code> 梳式差异，风险与 A 一致。</li>
+          <li><b>非 TTY / 计划任务：</b>退化路径三档共用，零回归；quiet 照旧零输出。</li>
+          <li><b>行数预算：</b>约 10 行（框 3 + 信息 1 + 已发生步骤 1 行/步 + 整体 1）。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ §C 极简 ═══════════ -->
+<section id="c" class="section">
+  <div class="wrap">
+    <div class="eyebrow">模式 C · 已实装</div>
+    <h2>极简：一切单行，冗余信息全部去日志</h2>
+    <p class="lead">
+      不画框、不画分隔线，5 步压成一行流。适合把 pi-launcher 当<b>日常快捷键</b>用的人：
+      看一眼状态即可，细节归日志。
+    </p>
+    <div class="pair">
+      <div class="term">
+        <div class="tbar"><span class="dots"><i></i><i></i><i></i></span><span class="t">Windows Terminal — pi-launcher（模式 C · --display c · 进行中）</span><span class="w">─ ▢ ✕</span></div>
+        <div class="term-scroll"><div class="scr">
+          <div class="gap"></div>
+          <div class="b-row"><span class="wht">pi-launcher</span> <span class="dim">v1.1.0 · 动画 dots（池 3/6 组）</span></div>
+          <div class="gap"></div>
+          <div class="ln r-c2">
+            <span class="c1 drk">1·</span><span class="c2">预检</span><span class="st-ok">✓</span><span class="c4">0.2s</span><span class="c5"></span>
+          </div>
+          <div class="ln r-c2">
+            <span class="c1 drk">2·</span><span class="c2">更新</span><span class="st-ok">✓</span><span class="c4">5.6s</span><span class="c5">扩展包更新完成</span>
+          </div>
+          <div class="ln r-c2">
+            <span class="c1 drk">3·</span><span class="c2">pi-web</span><span class="st-ok">✓</span><span class="c4">0.8s</span><span class="c5">v0.12.2 最新</span>
+          </div>
+          <div class="ln r-c2">
+            <span class="c1 drk">4·</span><span class="c2">启动</span><span class="c4">12.4s</span><span class="c5">等待就绪 <span class="bf">███████</span><span class="bt">░░░░░</span> 62%</span>
+          </div>
+          <div class="gap"></div>
+          <div class="b-row">  <span class="bf">█████</span><span class="bt">░░░░░░░</span> <span class="dim">40%</span></div>
+        </div></div>
+      </div>
+      <div class="note">
+        <span class="tag">已实装（v1.1.0）</span>
+        <h3>Rust 端怎么落的</h3>
+        <ul>
+          <li><b>共用引擎的第三张皮：</b>行模板收窄到 10 列（短名 + 状态 + 耗时）、开场仅 1 行标题；整体条也收窄（16 格）。</li>
+          <li><b>信息取舍：</b>命令明细、版本比对数字全部只进日志；屏幕保持 8 行上下。</li>
+          <li><b>趣味保留：</b>动画池照常轮换（标题行亮出名字，成本为零）。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 符号系统 ═══════════ -->
+<section id="sys" class="section">
+  <div class="wrap">
+    <div class="eyebrow">Common · 三档通吃</div>
+    <h2>四个符号 + 六种色，不再有第五种</h2>
+    <p class="lead">v2 规定符号只承载「状态」这一个语义维度，颜色只用 Windows Terminal 默认色板——不引入 emoji，任何 Windows 终端（含 conhost）渲染一致。</p>
+
+    <div class="sys">
+      <div class="sysc"><div class="g ok">✓</div><b>成功</b><p>步骤完成 / 子项就绪。唯一绿色。</p></div>
+      <div class="sysc"><div class="g err">✗</div><b>失败</b><p>真失败才用。出现即注定退出码 1–5。</p></div>
+      <div class="sysc"><div class="g tw">⚠</div><b>容忍</b><p>EBUSY / 运行中跳过升级等「降级继续」。</p></div>
+      <div class="sysc"><div class="g"><span class="spin"></span></div><b>进行中</b><p>动画帧右侧恒定挂 elapsed 计时。</p></div>
+    </div>
+
+    <div class="swr">
+      <span class="sw"><i style="background: hsl(105 89% 41%)"></i>ok &nbsp;#16c60c</span>
+      <span class="sw"><i style="background: hsl(348 76% 60%)"></i>err &nbsp;#e74856</span>
+      <span class="sw"><i style="background: hsl(48 84% 82%)"></i>warn #f9f1a5</span>
+      <span class="sw"><i style="background: hsl(217 91% 62%)"></i>run &nbsp;#3b78ff</span>
+      <span class="sw"><i style="background: hsl(0 0% 80%)"></i>text #dddddd</span>
+      <span class="sw"><i style="background: hsl(0 0% 46%)"></i>dim &nbsp;#777777</span>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 尾注 ═══════════ -->
+<section class="section" style="padding-top: var(--s-4)">
+  <div class="wrap">
+    <div class="lead" style="margin-bottom: 0">
+      <b style="color: var(--ink)">已实装（v1.1.0，2026-10-20）：</b>三档显示模式随 <code class="k">--display</code> 参数落地，预设 A；
+      以桌面 Windows Terminal 目视验收为准。构建核对 <code class="k">pi-launcher.exe</code> 新基线
+      <b>408,064 bytes</b>（v1.0.0 399,360 → +2.2%）。README 与 docs/Pi-Luncher.html 已同步 v1.1.0。
+      本页保留为 CLI 输出层的版式与状态语言规格。
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="fin">
+    <span>pi-launcher CLI 输出层规格 · v1.1.0 已实装（设计稿保留备考）</span>
+    <span>·</span>
+    <a href="https://github.com/Wahero/Pi-luncher">GitHub</a>
+    <span>·</span>
+    <span>画面按 80 列仿真；实际游标行为以 Rust 实现为准</span>
+  </div>
+</footer>
+
+</body>
+</html>

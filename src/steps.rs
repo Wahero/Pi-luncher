@@ -2,7 +2,7 @@ use crate::command_runner::{
     build_command, command_exists, probe_http, run_capture, run_checked, spawn_detached,
     terminate_background, wait_ready, RunResult, StartupOutcome,
 };
-use crate::ui::Ui;
+use crate::ui::{self, Ui};
 use std::process::Child;
 
 /// 启动步骤总数（与 main 的流程一一对应）
@@ -25,12 +25,13 @@ pub enum WebStart {
 }
 
 /// 步骤 1：环境预检（pi / pi-web / npm）
+/// 行内只显示一行（右上侧动态报当前检查项），逐项就绪写进日志。
 pub fn step_preflight(ui: &mut Ui) -> Result<(), String> {
-    ui.step_start(1, "环境预检（pi / pi-web / npm）", false);
+    ui.step_start(1, "环境预检（pi / pi-web / npm）", "环境预检", false);
 
     let required = ["pi", "pi-web", "npm"];
     for name in &required {
-        ui.step_message(&format!("正在检查命令 `{}` …", name));
+        ui.step_message(&format!("检查命令 `{}` …", name));
         if !command_exists(name) {
             let msg = format!(
                 "未找到命令 `{}`。请先安装 Pi Coding Agent：\n   npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
@@ -42,7 +43,7 @@ pub fn step_preflight(ui: &mut Ui) -> Result<(), String> {
             );
             return Err(msg);
         }
-        ui.message(&format!("  ✓ 命令 `{}` 已就绪", name));
+        ui::log(&format!("  ✓ 命令 `{}` 已就绪", name));
     }
 
     ui.step_ok("pi / pi-web / npm 全部就绪");
@@ -51,7 +52,7 @@ pub fn step_preflight(ui: &mut Ui) -> Result<(), String> {
 
 /// 步骤 2：执行 pi update --all
 pub fn step_pi_update(ui: &mut Ui) -> Result<(), String> {
-    ui.step_start(2, "执行 pi update --all", false);
+    ui.step_start(2, "执行 pi update --all", "pi update --all", false);
     ui.step_message("正在更新 Pi 及扩展包…");
 
     let result = run_checked("pi", &["update", "--all"]);
@@ -89,7 +90,7 @@ pub fn step_pi_update(ui: &mut Ui) -> Result<(), String> {
 ///
 /// 任何查询失败都视为“无法确认”，走安全路径（直接执行安装命令由 npm 自行判断）。
 pub fn step_pi_web_upgrade(ui: &mut Ui, host: &str, port: u16) -> Result<(), String> {
-    ui.step_start(3, "检查并升级 pi-web", false);
+    ui.step_start(3, "检查并升级 pi-web", "检查并升级 pi-web", false);
 
     // 运行中的实例会锁定包目录，npm -g 升级必然失败（EBUSY），
     // 因此先探测：在运行就跳过升级，保留现有版本。
@@ -210,7 +211,7 @@ fn run_upgrade_install(ui: &mut Ui) -> Result<(), String> {
 /// - 启动前先 HTTP 探测：服务已在运行则跳过（保留原进程，本进程无从监控）
 /// - 否则 detached 启动，并以确定进度条展示「等待 HTTP 就绪」的时间轴（60s 上限）
 pub fn step_pi_web(ui: &mut Ui, host: &str, port: u16) -> Result<WebStart, String> {
-    ui.step_start(4, "启动 pi-web（常驻后台）", true);
+    ui.step_start(4, "启动 pi-web（常驻后台）", "启动 pi-web（后台）", true);
 
     // 已在运行？直接跳过，避免端口冲突
     if probe_http(host, port) {
@@ -265,7 +266,7 @@ pub fn step_pi_web(ui: &mut Ui, host: &str, port: u16) -> Result<WebStart, Strin
 /// 注意：`pi` 的 `--mode` 只接受 text / json / rpc，并没有 interactive；
 /// 交互模式是在「stdin/stdout 都是 TTY 且非 --print」时的预设行为，所以直接跑 `pi`。
 pub fn step_pi_cli(ui: &mut Ui) -> Result<(), String> {
-    ui.step_start(5, "启动 Pi CLI 交互界面", false);
+    ui.step_start(5, "启动 Pi CLI 交互界面", "Pi CLI", false);
 
     // CLI 是 TUI：清掉剩余渲染（底部整体条），避免重绘互相打架
     ui.overall_finish();

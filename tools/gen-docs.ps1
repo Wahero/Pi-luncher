@@ -1,4 +1,4 @@
-# 一次性脚本：用当前源码重新生成 docs/Pi-Luncher.html（v1.0.0 同步版）。
+# 一次性脚本：用当前源码重新生成 docs/Pi-Luncher.html（v1.1.0 同步版）。
 # 旧文档的手写高亮无法逐段维护，改为：沿用旧 CSS/外壳 + 源码纯文本转义注入。
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -43,7 +43,7 @@ $html = @"
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pi Agent 批量自动化启动工具 - Rust 实现 v1.0.0</title>
+<title>Pi Agent 批量自动化启动工具 - Rust 实现 v1.1.0</title>
 $css
 </head>
 <body>
@@ -78,14 +78,16 @@ $css
       <p>
         一个用 Rust 编写的启动器工具，一条命令完成
         <strong>环境预检 → pi update --all → 检查并升级 pi-web → 启动 pi-web → 启动 Pi CLI</strong>
-        的完整流程。每个环节都有状态显示与错误检查；支持安静模式（自动化 / 计划任务）与全程文字日志。
+        的完整流程。每个环节都有状态显示与错误检查；三档显示模式（工作账 / 轻修 / 极简）随 <code>--display</code> 切换；
+        支持安静模式（自动化 / 计划任务）与全程文字日志。
       </p>
       <div class="tags">
-        <span>v1.0.0</span>
+        <span>v1.1.0</span>
         <span>Rust 2021</span>
         <span>indicatif 0.17</span>
         <span>脱离式后台</span>
         <span>--quiet 安静模式</span>
+        <span>--display A/B/C</span>
         <span>全程文字日志</span>
       </div>
     </header>
@@ -199,6 +201,11 @@ $css
           <div class="desc">MultiProgress：步骤行右侧固定动画/进度 + 底部整体进度；普通行挂在 MultiProgress 上安全打印。</div>
         </div>
         <div class="feature-card">
+          <span class="icon">📊</span>
+          <div class="name">显示模式</div>
+          <div class="desc">--display A（工作账·默认）一步一行、完成即原位凝固；B（轻修）分栏仪表；C（极简）一行流。</div>
+        </div>
+        <div class="feature-card">
           <span class="icon">📄</span>
           <div class="name">Text</div>
           <div class="desc">非 TTY（管道 / CI）：纯文字输出，无渲染开销，结果行带耗时。</div>
@@ -212,6 +219,11 @@ $css
       <div class="callout note">
         <span class="title">动画池轮换</span>
         6 组（dots / dots2 / grow / moon / clock / hourglass）；启动时按本机日志计数取模循环，也可 <code>--spin &lt;名字&gt;</code> 固定。
+      </div>
+      <div class="callout note">
+        <span class="title">行即事实（--display A）</span>
+        工作账模式下每步只有一行：运行时右侧转圈 + 已耗时 + 当前动作，完成瞬间原位变为「✓ 耗时 结论」，失败变「✗ 原因」。
+        收尾时整体条撤场，账目行按序重放为普通行，让最终信息排在账目之后。底部整体进度条全程钉在屏幕最底端。
       </div>
       <div class="callout note">
         <span class="title">日志</span>
@@ -235,6 +247,7 @@ $css
         <tbody>
           <tr><td><code>pi-launcher</code></td><td>正常模式：banner + 动画进度 + Pi CLI 交互 + 30 秒倒计时关窗</td></tr>
           <tr><td><code>pi-launcher --quiet</code>（<code>-q</code> / <code>--auto</code>）</td><td>安静模式：仅 2 行提示（含日志路径），跳过 Pi CLI，成功/失败自动关窗；supervisor 照常</td></tr>
+          <tr><td><code>pi-launcher --display &lt;A|B|C&gt;</code></td><td>显示模式：A=工作账·一步一行、完成即凝固（默认）；B=轻修·分栏仪表；C=极简·一行流。别名 <code>a/b/c</code>、<code>ledger/lite/min</code> 均可，大小写不敏感；非法值退出码 1 并列出可选项；quiet 与非终端下无效</td></tr>
           <tr><td><code>pi-launcher --spin &lt;名字&gt;</code></td><td>固定右侧动画；池内可选 dots / dots2 / grow / moon / clock / hourglass</td></tr>
           <tr><td><code>pi-launcher -h</code> / <code>--help</code></td><td>打印用法与退出码表</td></tr>
           <tr><td><code>pi-launcher --force-tty</code></td><td>调试用：非终端环境强制走动画渲染路径</td></tr>
@@ -342,7 +355,7 @@ panic = "abort"</code></pre>
     </section>
 
     <footer>
-      Pi Agent 批量自动化启动工具 · Rust 实现文档 · v1.0.0
+      Pi Agent 批量自动化启动工具 · Rust 实现文档 · v1.1.0
     </footer>
 
   </main>

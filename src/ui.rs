@@ -12,20 +12,48 @@
 //! 每次启动建新文件，自动保留最近 LOG_KEEP 份。
 ////////////////////////////////////////////////////////////////////////////////
 
-use console::Term;
+use console::{style, Term};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
+use unicode_width::UnicodeWidthStr;
 
-pub const VERSION: &str = "1.0.0";
+pub const VERSION: &str = "1.1.0";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
     Normal,
     Quiet,
+}
+
+// ────────────────────────────────────────────────────────────────
+// 显示模式（--display A|B|C）：三档交互版式，仅影响 TTY 渲染；
+// 非 TTY 自动退化为纯文字、安静模式零输出，两者不受本参数影响。
+//   A = 工作账（Ledger，默认）：一步一行，进行中实时刷新，完成即原位凝固
+//   B = 轻修（Lite）：保留分栏仪表节奏 + 圆角细框 banner
+//   C = 极简（Min）：单行流，无框无分隔线
+// ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Display {
+    Ledger, // A：工作账
+    Lite,   // B：轻修
+    Min,    // C：极简
+}
+
+impl Display {
+    /// 解析 --display 的值；大小写不敏感，接受简写与别名。
+    pub fn from_arg(s: &str) -> Option<Display> {
+        match s.to_ascii_lowercase().as_str() {
+            "a" | "ledger" => Some(Display::Ledger),
+            "b" | "lite" | "light" => Some(Display::Lite),
+            "c" | "min" | "minimal" => Some(Display::Min),
+            _ => None,
+        }
+    }
 }
 
 pub const LOG_KEEP: usize = 20;
@@ -268,7 +296,7 @@ pub fn notify(msg: &str) {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 前景 UI：步骤渲染（交互 / 纯文字 / 安静 郑州）
+// 前景 UI：步骤渲染（交互 / 纯文字 / 安静模式）
 // ────────────────────────────────────────────────────────────────
 
 enum Kind {
@@ -285,11 +313,13 @@ enum Kind {
 
 pub struct Ui {
     kind: Kind,
+    display: Display,
     steps_total: usize,
     anim_name: Option<&'static str>,
     anim_index: Option<usize>,
 
-    // 底部整体进度（仅交互模式）
+    // 底部整体进度（仅交互模式）：初始化时最先 add，所有步骤行都插入在它上方，
+    // 因此它始终钉在屏幕最底部
     overall: Option<ProgressBar>,
     overall_base: u64, // 已完成步骤的累计百分比基数
 
@@ -297,12 +327,24 @@ pub struct Ui {
     current_bar: Option<ProgressBar>,
     current_det: bool,
     current_idx: usize,
+    current_row_label: String,
     step_started: Option<Instant>,
+
+    // 已凝固的步骤行（行即事实）：成功收尾时先撤场再原样重放，
+    // 让收尾信息排在账目最后一行之后（println 会插在渲染块上方）
+    frozen_bars: Vec<ProgressBar>,
+    frozen_rows: Vec<String>,
 }
 
 impl Ui {
     /// 建立输出层（日志器已在 main 先行初始化）
-    pub fn init(mode: Mode, force_tty: bool, spin_forced: Option<&str>, steps_total: usize) -> Ui {
+    pub fn init(
+        mode: Mode,
+        display: Display,
+        force_tty: bool,
+        spin_forced: Option<&str>,
+        steps_total: usize,
+    ) -> Ui {
         match mode {
             Mode::Quiet => {
                 let _ = NOTIFY.set(Notify {
@@ -312,6 +354,7 @@ impl Ui {
                 });
                 Ui {
                     kind: Kind::Quiet,
+                    display,
                     steps_total,
                     anim_name: None,
                     anim_index: None,
@@ -320,7 +363,10 @@ impl Ui {
                     current_bar: None,
                     current_det: false,
                     current_idx: 0,
+                    current_row_label: String::new(),
                     step_started: None,
+                    frozen_bars: Vec::new(),
+                    frozen_rows: Vec::new(),
                 }
             }
             Mode::Normal => {
@@ -333,6 +379,7 @@ impl Ui {
                     });
                     return Ui {
                         kind: Kind::Text,
+                        display,
                         steps_total,
                         anim_name: None,
                         anim_index: None,
@@ -341,7 +388,10 @@ impl Ui {
                         current_bar: None,
                         current_det: false,
                         current_idx: 0,
+                        current_row_label: String::new(),
                         step_started: None,
+                        frozen_bars: Vec::new(),
+                        frozen_rows: Vec::new(),
                     };
                 }
 
@@ -352,16 +402,17 @@ impl Ui {
                     idx + 1,
                     anim_pool().len()
                 ));
+                log(&format!(
+                    "显示模式：{}（--display {}）",
+                    display_label(display),
+                    "A|B|C"
+                ));
                 let mp = MultiProgress::new();
 
-                // 底部整体进度条：之后加进来的步骤 bar 渲染在它下方，
-                // 步骤 bar finish_and_clear 后消失，「整体」常驻底部。
+                // 底部整体进度条：整体是第一个加入的 bar（占 index 0），
+                // 后续步骤行通过 insert(idx-1) 插到它上方 → 整体永远钉在底部
                 let overall = mp.add(ProgressBar::new(100));
-                overall.set_style(
-                    ProgressStyle::with_template("  整体进度 {bar:26.cyan/green} {percent:>3}%")
-                        .unwrap()
-                        .progress_chars("━╸─"),
-                );
+                overall.set_style(overall_style(display));
 
                 // supervisor 等后台线程需要同一条 MultiProgress 来安全输出
                 let _ = NOTIFY.set(Notify {
@@ -371,10 +422,8 @@ impl Ui {
                 });
 
                 Ui {
-                    kind: Kind::Interactive {
-                        mp,
-                        spin_chars: chars,
-                    },
+                    kind: Kind::Interactive { mp, spin_chars: chars },
+                    display,
                     steps_total,
                     anim_name: Some(name),
                     anim_index: Some(idx),
@@ -383,7 +432,10 @@ impl Ui {
                     current_bar: None,
                     current_det: false,
                     current_idx: 0,
+                    current_row_label: String::new(),
                     step_started: None,
+                    frozen_bars: Vec::new(),
+                    frozen_rows: Vec::new(),
                 }
             }
         }
@@ -420,8 +472,9 @@ impl Ui {
         }
     }
 
-    /// 步骤开始：打印步骤标题、建 bar（det → 确定进度条；spin → 右侧转圈）并记日志
-    pub fn step_start(&mut self, idx: usize, label: &str, det: bool) {
+    /// 步骤开始：按模式插入一行（insert 确保步骤行都排在整体条上方 → 整体钉底）。
+    /// det → 确定进度条；spin → 转圈。日志仍记长标题，行内用短名。
+    pub fn step_start(&mut self, idx: usize, label: &str, row_label: &str, det: bool) {
         let total = self.steps_total;
         log(&format!("[STEP {}/{}] 开始：{}", idx, total, label));
 
@@ -429,20 +482,24 @@ impl Ui {
         self.current_det = det;
         self.step_started = Some(Instant::now());
         self.current_bar = None;
+        self.current_row_label = row_label.to_string();
 
         match &self.kind {
-            Kind::Interactive { mp, .. } => {
-                mp.println(format!("\n  [{}/{}] {}", idx, total, label))
-                    .ok();
-
-                let bar = mp.add(ProgressBar::new(100));
-                let style = if det {
-                    det_style()
+            Kind::Interactive { mp, spin_chars } => {
+                let bar = mp.insert(idx.saturating_sub(1), ProgressBar::new(100));
+                let tpl = run_tpl(self.display, det);
+                let sty = if det {
+                    ProgressStyle::with_template(tpl)
+                        .expect("步骤行模板是静态合法模板")
+                        .progress_chars("━╸─")
                 } else {
-                    spin_style(self.spin_chars())
+                    ProgressStyle::with_template(tpl)
+                        .expect("步骤行模板是静态合法模板")
+                        .tick_chars(spin_chars)
                 };
-                bar.set_style(style);
-                bar.set_message(if det { "等待中…" } else { "执行中…" });
+                bar.set_style(sty);
+                bar.set_prefix(self.running_prefix());
+                bar.set_message(row_label.to_string());
                 bar.enable_steady_tick(std::time::Duration::from_millis(90));
                 self.current_bar = Some(bar);
             }
@@ -453,11 +510,13 @@ impl Ui {
         }
     }
 
-    /// 更新当前步骤的 bar 右侧消息
+    /// 更新当前步骤右侧动态动作（仅 spin 行有 {wide_msg}；det 行右侧被 bar 占用）
     pub fn step_message(&mut self, msg: &str) {
         if let Kind::Interactive { .. } = &self.kind {
-            if let Some(bar) = &self.current_bar {
-                bar.set_message(msg.to_string());
+            if !self.current_det {
+                if let Some(bar) = &self.current_bar {
+                    bar.set_message(msg.to_string());
+                }
             }
         }
     }
@@ -477,54 +536,65 @@ impl Ui {
         }
     }
 
-    /// 步骤成功：清 bar、打印 ✓、日志带耗时；整体进度推进一个步距
+    /// 步骤成功：行原位凝固为 ✓ 行；整体进度推进一个步距
     pub fn step_ok(&mut self, msg: &str) {
+        self.frozen_step(true, msg);
+    }
+
+    /// 步骤失败：行原位凝固为 ✗ 行
+    pub fn step_fail(&mut self, msg: &str) {
+        self.frozen_step(false, msg);
+    }
+
+    /// 白盒内部：把当前活动行替换为凝固行（不换行、不再刷新）。
+    /// 行文本同时写入 frozen_rows，成功收尾时 replay_ledger 会原样重放。
+    fn frozen_step(&mut self, ok: bool, msg: &str) {
         let secs = self.step_secs();
         let idx = self.current_idx;
         let per = 100u64 / self.steps_total.max(1) as u64;
 
         log(&format!(
-            "[STEP {}/{}] 完成：{}（{:.1}s）",
-            idx, self.steps_total, msg, secs
+            "[STEP {}/{}] {}：{}（{:.1}s）",
+            idx,
+            self.steps_total,
+            if ok { "完成" } else { "失败" },
+            msg,
+            secs
         ));
 
+        let interactive = matches!(&self.kind, Kind::Interactive { .. });
         if let Some(bar) = self.current_bar.take() {
-            bar.finish_and_clear();
+            if interactive {
+                let line = self.frozen_line(ok, msg, secs);
+                bar.set_style(
+                    ProgressStyle::with_template("{msg}").expect("模板 '{msg}' 是合法模板"),
+                );
+                bar.set_message(line.clone());
+                bar.finish();
+                self.frozen_bars.push(bar);
+                self.frozen_rows.push(line);
+            } else {
+                bar.finish_and_clear();
+            }
         }
         self.step_started = None;
 
         match &self.kind {
-            Kind::Interactive { mp, .. } => {
-                mp.println(format!("  ✓ {}", msg)).ok();
-                if let Some(overall) = &self.overall {
-                    self.overall_base = ((self.overall_base / per) + 1) * per;
-                    overall.set_position(self.overall_base);
+            Kind::Interactive { .. } => {
+                if ok {
+                    if let Some(overall) = &self.overall {
+                        self.overall_base = ((self.overall_base / per) + 1) * per;
+                        overall.set_position(self.overall_base);
+                    }
                 }
             }
-            Kind::Text => println!("  ✓ {}（{:.1}s）", msg, secs),
-            Kind::Quiet => {}
-        }
-    }
-
-    /// 步骤失败：清 bar、打印 ✗、落盘
-    pub fn step_fail(&mut self, msg: &str) {
-        let secs = self.step_secs();
-        let idx = self.current_idx;
-        log(&format!(
-            "[STEP {}/{}] 失败：{}（{:.1}s）",
-            idx, self.steps_total, msg, secs
-        ));
-
-        if let Some(bar) = self.current_bar.take() {
-            bar.finish_and_clear();
-        }
-        self.step_started = None;
-
-        match &self.kind {
-            Kind::Interactive { mp, .. } => {
-                mp.println(format!("  ✗ {}", msg)).ok();
+            Kind::Text => {
+                if ok {
+                    println!("  ✓ {}（{:.1}s）", msg, secs);
+                } else {
+                    println!("  ✗ {}", msg);
+                }
             }
-            Kind::Text => println!("  ✗ {}", msg),
             Kind::Quiet => {}
         }
     }
@@ -536,10 +606,31 @@ impl Ui {
         }
     }
 
-    fn spin_chars(&self) -> &'static str {
-        match &self.kind {
-            Kind::Interactive { spin_chars, .. } => spin_chars,
-            _ => "",
+    /// 成功收尾：撤掉底部整体条与凝固行后的活动渲染，再把凝固行原样重放为普通行，
+    /// 让收尾信息（日志路径、✓ 全部完成）自然排在账目最后一行之后。
+    /// 失败路径不调用本方法——失败时保留凝固现场，便于停屏观察。
+    pub fn replay_ledger(&mut self) {
+        let is_interactive = matches!(&self.kind, Kind::Interactive { .. });
+        if !is_interactive {
+            return;
+        }
+
+        // 与 kind 的不可变借用不相交的经典字段操作，逐个处理
+        if let Some(overall) = self.overall.take() {
+            overall.finish_and_clear();
+        }
+        if let Some(bar) = self.current_bar.take() {
+            bar.finish_and_clear();
+        }
+        let bars = std::mem::take(&mut self.frozen_bars);
+        for bar in bars {
+            bar.finish_and_clear();
+        }
+        let rows = std::mem::take(&mut self.frozen_rows);
+        if let Kind::Interactive { mp, .. } = &self.kind {
+            for row in rows {
+                mp.println(row).ok();
+            }
         }
     }
 
@@ -548,17 +639,150 @@ impl Ui {
             .map(|s| s.elapsed().as_secs_f64())
             .unwrap_or(0.0)
     }
+
+    /// 运行中的行前缀：编号（上色）+ 名称（按显示宽度补位）。
+    /// 与冻结行共用同一套编号/名称规则，保证行切换前后语义一致。
+    fn running_prefix(&self) -> String {
+        let idx = self.current_idx;
+        let (num, nw) = match self.display {
+            Display::Ledger => (format!("{}/{}", idx, self.steps_total), 20),
+            Display::Lite => (format!("[{}/{}]", idx, self.steps_total), 20),
+            Display::Min => (format!("{}·", idx), 7),
+        };
+        format!(
+            "{} {}",
+            style(num).cyan(),
+            pad_width(self.current_row_label.as_str(), nw)
+        )
+    }
+
+    /// 凝固行文本：编号（灰）+ 名称 + ✓/✗ + 耗时 + 结论。
+    fn frozen_line(&self, ok: bool, msg: &str, secs: f64) -> String {
+        let idx = self.current_idx;
+        let (num, nw) = match self.display {
+            Display::Ledger => (format!("{}/{}", idx, self.steps_total), 20),
+            Display::Lite => (format!("[{}/{}]", idx, self.steps_total), 20),
+            Display::Min => (format!("{}·", idx), 7),
+        };
+        let mark = if ok { style("✓").green() } else { style("✗").red() };
+        let tail = if ok { style(msg).dim() } else { style(msg).red() };
+        format!(
+            "  {} {} {} {} {}",
+            style(num).dim(),
+            pad_width(self.current_row_label.as_str(), nw),
+            mark,
+            style(format!("{:.1}s", secs)).dim(),
+            tail
+        )
+    }
 }
 
-fn spin_style(spin_chars: &'static str) -> ProgressStyle {
-    // 右侧固定位置：{wide_msg} 把残余宽度撑满，将转圈 + 已耗时推到行末
-    ProgressStyle::with_template("{wide_msg} {spinner:.green} {elapsed:>4}")
-        .unwrap()
-        .tick_chars(spin_chars)
+// ────────────────────────────────────────────────────────────────
+// 模板与文本工具（展示宽度全部按 unicode-width 口径计算）
+// ────────────────────────────────────────────────────────────────
+
+/// 显示模式下的人类可读名（日志用）
+fn display_label(d: Display) -> &'static str {
+    match d {
+        Display::Ledger => "工作账",
+        Display::Lite => "轻修",
+        Display::Min => "极简",
+    }
 }
 
-fn det_style() -> ProgressStyle {
-    ProgressStyle::with_template("{wide_msg} {bar:14.cyan/blue} {percent:>3}% eta:{eta:>3}")
-        .unwrap()
+/// 交互步骤行模板（80 列预算内；{prefix} 为「编号+名称」整体，
+/// {wide_msg}/{bar} 是右侧动态动作位）。
+fn run_tpl(display: Display, det: bool) -> &'static str {
+    match (display, det) {
+        // A · 工作账：编号+名称 25 列 | 转圈 | 计时 | 右侧动作
+        (Display::Ledger, false) => {
+            "  {prefix:<25} {spinner:.cyan} {elapsed:>4.dim} {wide_msg:.dim}"
+        }
+        (Display::Ledger, true) => {
+            "  {prefix:<25} {elapsed:>4.dim} {bar:10.cyan/blue} {percent:>3}% eta:{eta:>2}"
+        }
+        // B · 轻修：编号+名称 26 列 + 短竖线分隔 + 状态
+        (Display::Lite, false) => {
+            "  {prefix:<26} ─────────────── {spinner:.cyan} {elapsed:>4.dim} {wide_msg:.dim}"
+        }
+        (Display::Lite, true) => {
+            "  {prefix:<26} ─────────────── {elapsed:>4.dim} {bar:8.cyan/blue} {percent:>3}% eta:{eta:>2}"
+        }
+        // C · 极简：10 列短行
+        (Display::Min, false) => "  {prefix:<10} {spinner:.cyan} {elapsed:>4.dim} {wide_msg:.dim}",
+        (Display::Min, true) => {
+            "  {prefix:<10} {elapsed:>4.dim} {bar:8.cyan/blue} {percent:>3}%"
+        }
+    }
+}
+
+/// 底部整体条模板（C 档收窄宽度）
+fn overall_tpl(display: Display) -> &'static str {
+    match display {
+        Display::Min => "  整体 {bar:16.cyan/green} {percent:>3}%",
+        _ => "  整体进度 {bar:26.cyan/green} {percent:>3}%",
+    }
+}
+
+/// 底部整体条样式
+fn overall_style(display: Display) -> ProgressStyle {
+    ProgressStyle::with_template(overall_tpl(display))
+        .expect("整体条模板是静态合法模板")
         .progress_chars("━╸─")
+}
+
+/// 按显示宽度把字符串右补空格到指定列宽（超宽则原样返回，交由 wide_msg/终端裁剪）
+pub fn pad_width(s: &str, w: usize) -> String {
+    let d = UnicodeWidthStr::width(s);
+    if d >= w {
+        s.to_string()
+    } else {
+        format!("{}{}", s, " ".repeat(w - d))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_arg_aliases() {
+        assert_eq!(Display::from_arg("a"), Some(Display::Ledger));
+        assert_eq!(Display::from_arg("A"), Some(Display::Ledger));
+        assert_eq!(Display::from_arg("ledger"), Some(Display::Ledger));
+        assert_eq!(Display::from_arg("b"), Some(Display::Lite));
+        assert_eq!(Display::from_arg("lite"), Some(Display::Lite));
+        assert_eq!(Display::from_arg("C"), Some(Display::Min));
+        assert_eq!(Display::from_arg("minimal"), Some(Display::Min));
+        assert_eq!(Display::from_arg("x"), None);
+        assert_eq!(Display::from_arg(""), None);
+    }
+
+    #[test]
+    fn pad_width_arena() {
+        assert_eq!(pad_width("pi", 6), "pi    ");
+        let padded = pad_width("检查并升级 pi-web", 20);
+        assert_eq!(UnicodeWidthStr::width(padded.as_str()), 20);
+        // 超宽不额外截断：交给 wide_msg / 终端负责
+        let wide = pad_width("pi-web1234567890123456", 20);
+        assert_eq!(UnicodeWidthStr::width(wide.as_str()), 22);
+    }
+
+    #[test]
+    fn all_row_templates_parse() {
+        // 六张步骤行模板 + 三张整体条模板必须全部合法，避免运行期 panic
+        for d in [Display::Ledger, Display::Lite, Display::Min] {
+            for det in [false, true] {
+                let tpl = run_tpl(d, det);
+                let sty = ProgressStyle::with_template(tpl)
+                    .unwrap_or_else(|e| panic!("模板解析失败 {tpl:?}: {e}"));
+                let _ = if det {
+                    sty.progress_chars("━╸─")
+                } else {
+                    sty.tick_chars("⠋⠙")
+                };
+            }
+            let _ = overall_style(d);
+        }
+    }
 }

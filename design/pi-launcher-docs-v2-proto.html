@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pi-launcher · 视觉原型 v2（未套用）</title>
+<style>
+/* ════════════════════════════════════════════════════════════════
+   Pi-luncher 视觉原型 v2 —— 依据 ai-ui-design 方法论重构
+   规则：所有 px / 色值 / 字重 / 圆角 / 阴影一律取自下方 token，不出现随意值
+   ════════════════════════════════════════════════════════════════ */
+:root {
+  /* ---- 灰阶：以蓝冷调染色（hue 220），9 级 ---- */
+  --g-50:  hsl(220 40% 98%);
+  --g-100: hsl(220 33% 95%);
+  --g-200: hsl(220 26% 90%);
+  --g-300: hsl(220 16% 82%);
+  --g-400: hsl(220 12% 62%);
+  --g-500: hsl(220 10% 45%);
+  --g-600: hsl(220 14% 34%);
+  --g-700: hsl(220 18% 26%);
+  --g-800: hsl(220 24% 15%);
+  --g-900: hsl(222 30% 10%);
+
+  /* ---- 主色：蓝（0-9 ramp）---- */
+  --p-50:  hsl(217 100% 96%);
+  --p-100: hsl(217 96% 91%);
+  --p-200: hsl(217 92% 82%);
+  --p-500: hsl(221 83% 53%);
+  --p-600: hsl(221 80% 46%);
+  --p-700: hsl(221 76% 38%);
+  --p-800: hsl(221 70% 30%);
+
+  /* ---- 状态色 ---- */
+  --ok:    hsl(152 64% 36%);
+  --ok-t:  hsl(152 44% 94%);
+  --warn:  hsl(38 88% 42%);
+  --warn-t:hsl(40 88% 95%);
+  --err:   hsl(0 68% 46%);
+  --err-t: hsl(4 82% 96%);
+
+  /* ---- 终端块配色（深色面板内）---- */
+  --t-bg:   hsl(222 32% 9%);
+  --t-edge: hsl(222 24% 16%);
+  --t-text: hsl(220 24% 88%);
+  --t-dim:  hsl(220 16% 62%);
+
+  /* ---- 字体 ---- */
+  --sans: "Segoe UI", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --mono: "Cascadia Code", Consolas, "Cascadia Mono", monospace;
+
+  /* ---- 间距尺度（非线性）---- */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px; --s-6: 24px;
+  --s-8: 32px; --s-12: 48px; --s-16: 64px; --s-24: 96px;
+
+  /* ---- 字号尺度 ---- */
+  --fs-12: 12px; --fs-14: 14px; --fs-16: 16px; --fs-18: 18px;
+  --fs-20: 20px; --fs-24: 24px; --fs-30: 30px; --fs-36: 36px; --fs-48: 48px;
+
+  /* ---- 圆角（主 10 + 胶囊）---- */
+  --r-1: 6px; --r-2: 10px; --r-full: 999px;
+
+  /* ---- 阴影（两段式）---- */
+  --sh-xs: 0 1px 2px rgb(15 23 42 / .05);
+  --sh-sm: 0 1px 2px rgb(15 23 42 / .06), 0 1px 3px rgb(15 23 42 / .10);
+  --sh-md: 0 2px 4px rgb(15 23 42 / .06), 0 4px 12px rgb(15 23 42 / .10);
+  --sh-lg: 0 4px 8px rgb(15 23 42 / .08), 0 12px 24px rgb(15 23 42 / .12);
+
+  /* ---- 布局 ---- */
+  --content: 1120px;
+  --prose: 68ch;
+}
+
+/* ═══════════ 基础 ═══════════ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--sans);
+  font-size: var(--fs-16);
+  line-height: 1.55;
+  color: var(--g-700);
+  background: var(--g-50);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--p-200); color: var(--g-900); }
+
+a { color: var(--p-700); text-decoration: none; }
+a:hover { color: var(--p-600); text-decoration: underline; text-underline-offset: 3px; }
+
+:focus-visible { outline: 2px solid var(--p-500); outline-offset: 2px; border-radius: var(--r-1); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--g-300); border-radius: var(--r-full); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ═══════════ 通用 ═══════════ */
+.wrap { max-width: var(--content); margin: 0 auto; padding: 0 var(--s-6); }
+
+.section { padding: var(--s-24) 0; }
+.section-head { max-width: var(--prose); margin-bottom: var(--s-12); }
+.section-head .eyebrow {
+  font-size: var(--fs-12); font-weight: 600; letter-spacing: .08em;
+  color: var(--p-700); text-transform: uppercase; margin-bottom: var(--s-2);
+}
+.section-head h2 {
+  font-size: var(--fs-36); font-weight: 700; letter-spacing: -.02em;
+  line-height: 1.15; color: var(--g-900);
+}
+.section-head p { color: var(--g-500); margin-top: var(--s-2); font-size: var(--fs-16); max-width: 52ch; }
+
+code.inline {
+  font-family: var(--mono); font-size: .9em;
+  background: var(--g-100); color: var(--p-800);
+  padding: 2px 8px; border-radius: var(--r-1);
+}
+
+/* ═══════════ 顶部导航 ═══════════ */
+.nav {
+  position: sticky; top: 0; z-index: 50;
+  background: hsl(220 40% 98% / .85);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--g-200);   /* 唯一边框：粘性导航需要分隔 */
+}
+.nav-inner {
+  max-width: var(--content); margin: 0 auto; padding: var(--s-3) var(--s-6);
+  display: flex; align-items: center; gap: var(--s-6);
+}
+.brand { display: flex; align-items: center; gap: var(--s-2); font-weight: 700; color: var(--g-900); }
+.brand .logo {
+  width: 28px; height: 28px; border-radius: var(--r-1);
+  background: linear-gradient(135deg, var(--p-500), var(--p-700));
+  color: #fff; font-family: var(--mono); font-size: var(--fs-14); font-weight: 700;
+  display: grid; place-items: center; box-shadow: var(--sh-xs);
+}
+.nav-links { display: flex; gap: var(--s-4); margin-left: auto; }
+.nav-links a {
+  font-size: var(--fs-14); font-weight: 500; color: var(--g-600);
+  padding: var(--s-1) var(--s-2); border-radius: var(--r-1);
+}
+.nav-links a:hover { color: var(--p-700); background: var(--g-100); text-decoration: none; }
+.nav-cta { display: flex; align-items: center; gap: var(--s-3); }
+.proto-pill {
+  font-size: var(--fs-12); font-weight: 600; letter-spacing: .05em;
+  color: var(--warn); background: var(--warn-t);
+  border: 1px dashed hsl(38 88% 42% / .5);
+  padding: 3px 10px; border-radius: var(--r-full); white-space: nowrap;
+}
+@media (max-width: 900px) { .nav-links { display: none; } }
+
+/* ═══════════ Hero ═══════════ */
+.hero {
+  position: relative; overflow: hidden;
+  padding: var(--s-16) 0 var(--s-24);
+  background:
+    radial-gradient(1200px 500px at 80% -10%, hsl(217 96% 91% / .55), transparent 60%),
+    radial-gradient(circle at 22px 22px, hsl(220 26% 90% / .55) 1px, transparent 1px);
+  background-size: auto, 44px 44px;
+}
+.hero-grid {
+  max-width: var(--content); margin: 0 auto; padding: 0 var(--s-6);
+  display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: var(--s-12); align-items: center;
+}
+.hero-copy .kicker {
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  font-size: var(--fs-12); font-weight: 600; letter-spacing: .06em;
+  color: var(--p-700); background: var(--p-50);
+  border: 1px solid var(--p-200); border-radius: var(--r-full);
+  padding: var(--s-1) var(--s-3); margin-bottom: var(--s-4);
+}
+.hero-copy h1 {
+  font-size: var(--fs-48); line-height: 1.12; letter-spacing: -.02em;
+  color: var(--g-900); font-weight: 700;
+  margin-bottom: var(--s-4);
+}
+.hero-copy h1 .hl { color: var(--p-600); }
+.hero-copy .lead {
+  font-size: var(--fs-18); line-height: 1.5; color: var(--g-600);
+  max-width: 46ch; margin-bottom: var(--s-6);
+}
+.hero-actions { display: flex; flex-wrap: wrap; gap: var(--s-3); margin-bottom: var(--s-6); }
+
+.btn {
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  font-size: var(--fs-14); font-weight: 600; line-height: 1;
+  padding: var(--s-3) var(--s-4); border-radius: var(--r-2);
+  border: 1px solid transparent; cursor: pointer;
+  transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
+}
+.btn-primary { background: var(--p-500); color: #fff; box-shadow: var(--sh-sm); }
+.btn-primary:hover { background: var(--p-600); box-shadow: var(--sh-md); text-decoration: none; color:#fff; }
+.btn-primary:active { background: var(--p-700); box-shadow: var(--sh-xs); transform: translateY(1px); }
+.btn-ghost { background: var(--g-50); color: var(--g-700); border-color: var(--g-300); box-shadow: var(--sh-xs); }
+.btn-ghost:hover { background: var(--g-100); text-decoration: none; color: var(--g-900); }
+.btn-ghost:active { transform: translateY(1px); box-shadow: none; }
+
+.hero-meta { display: flex; gap: var(--s-6); color: var(--g-500); font-size: var(--fs-14); }
+.hero-meta b { color: var(--g-800); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 1020px) {
+  .hero-grid { grid-template-columns: 1fr; gap: var(--s-8); }
+  .hero-copy h1 { font-size: var(--fs-36); }
+}
+
+/* ═══════════ 终端模拟 ═══════════ */
+.terminal {
+  background: var(--t-bg);
+  border-radius: var(--r-2);
+  box-shadow: var(--sh-lg), 0 0 0 1px hsl(222 30% 18% / .9);
+  overflow: hidden;
+  font-family: var(--mono); font-size: var(--fs-14); line-height: 1.75;
+}
+.term-bar {
+  display: flex; align-items: center; gap: var(--s-3);
+  background: var(--t-edge); padding: var(--s-2) var(--s-4);
+}
+.term-bar .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--g-600); }
+.term-bar .dot.c1 { background: hsl(0 65% 58%); }
+.term-bar .dot.c2 { background: hsl(45 80% 55%); }
+.term-bar .dot.c3 { background: hsl(150 60% 45%); }
+.term-bar .title { margin-left: var(--s-2); color: var(--t-dim); font-size: var(--fs-12); }
+
+.term-tabs { display: flex; gap: var(--s-1); padding: var(--s-2) var(--s-4) 0; }
+.term-tab {
+  font-size: var(--fs-12); font-weight: 600; color: var(--t-dim);
+  padding: var(--s-1) var(--s-3); border-radius: var(--r-1) var(--r-1) 0 0;
+  cursor: pointer; border: 1px solid transparent; border-bottom: none;
+}
+.term-tab.on {
+  color: var(--t-text); background: var(--t-bg);
+  border-color: hsl(222 24% 20%);
+  position: relative; top: 1px; z-index: 1;
+}
+.term-view { padding: var(--s-4) var(--s-4) var(--s-4); overflow-x: auto; }
+.term-view pre { font-family: inherit; white-space: pre; margin: 0; }
+
+.t-prompt   { color: var(--t-dim); }
+.t-path     { color: var(--p-200); }
+.t-cmd      { color: var(--t-text); font-weight: 700; }
+.t-ok       { color: var(--t-text); }
+.t-check    { color: hsl(152 60% 55%); }
+.t-warn     { color: hsl(40 80% 58%); }
+.t-dim      { color: var(--t-dim); }
+.t-num      { color: hsl(217 90% 70%); }
+.t-titleb   { color: hsl(217 80% 76%); }
+.t-bar      { color: hsl(217 90% 66%); }
+.t-cursor { 
+  display:inline-block; width:8px; height:14px; background: var(--p-200);
+  vertical-align:-2px; animation: blink 1.1s steps(1) infinite; margin-left:2px;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* 转圈动画：dots 帧 */
+.t-spin { display:inline-block; width: 1.2ch; text-align:left; color: hsl(152 60% 58%); }
+.t-spin::after {
+  content: "⠋";
+  animation: spinframes .9s steps(1) infinite;
+}
+@keyframes spinframes {
+  0%{content:"⠋"} 10%{content:"⠙"} 20%{content:"⠹"} 30%{content:"⠸"}
+  40%{content:"⠼"} 50%{content:"⠴"} 60%{content:"⠦"} 70%{content:"⠧"}
+  80%{content:"⠇"} 90%{content:"⠏"}
+}
+@media (prefers-reduced-motion: reduce) {
+  .t-spin::after { content: "⠸"; animation: none; }
+  .t-cursor { animation: none; }
+}
+
+/* 静态剧目切换（radio hack，无 JS） */
+#pane-normal, #pane-quiet { display: none; }
+.s1:checked ~ .term-view #pane-normal,
+.s2:checked ~ .term-view #pane-quiet { display: block; }
+
+/* 选中的 tab 高亮跟随 radio 状态 */
+#tab-normal:checked ~ .term-tabs label[for="tab-normal"],
+#tab-quiet:checked ~ .term-tabs label[for="tab-quiet"] {
+  color: var(--t-text); background: var(--t-bg);
+  border-color: hsl(222 24% 20%);
+  position: relative; top: 1px; z-index: 1;
+}
+.sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+
+/* ═══════════ 快速开始 ═══════════ */
+.quick { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: var(--s-6); }
+.qcard {
+  position: relative;
+  background: var(--g-50); border-radius: var(--r-2);
+  box-shadow: var(--sh-sm);
+  padding: var(--s-6);
+  counter-increment: q;
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.qcard:hover { transform: translateY(-2px); box-shadow: var(--sh-md); }
+.qcard::before {
+  content: counter(q, decimal-leading-zero);
+  font-family: var(--mono); font-size: var(--fs-14); font-weight: 700;
+  color: var(--p-600); position: absolute; top: var(--s-6); right: var(--s-6);
+}
+.qcard h3 { font-size: var(--fs-18); font-weight: 700; color: var(--g-900); margin-bottom: var(--s-2); }
+.qcard p { font-size: var(--fs-14); color: var(--g-500); margin-bottom: var(--s-4); line-height: 1.55; }
+.qcard .cmdrow {
+  display: flex; align-items: center; gap: var(--s-2);
+  background: var(--g-900); color: var(--g-200);
+  font-family: var(--mono); font-size: var(--fs-14);
+  padding: var(--s-3) var(--s-3); border-radius: var(--r-1);
+}
+.qcard .cmdtext {
+  display: block; white-space: nowrap; overflow-x: auto;
+  scrollbar-width: none; -ms-overflow-style: none;
+}
+.qcard .cmdtext::-webkit-scrollbar { display: none; }
+.qcard .cmdrow .dollar { color: var(--g-500); user-select: none; }
+.copy {
+  margin-left: auto; border: none; background: hsl(222 30% 18%);
+  color: var(--g-300); font-size: var(--fs-12); font-weight: 600;
+  padding: var(--s-1) var(--s-2); border-radius: var(--r-1); cursor: pointer;
+}
+.copy:hover { color: #fff; background: var(--p-700); }
+@media (max-width: 900px) { .quick { grid-template-columns: 1fr; } }
+
+/* ═══════════ 五步流程 ═══════════ */
+.steps { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: var(--s-3); counter-reset: st; }
+.step {
+  background: var(--g-50); border-radius: var(--r-2); box-shadow: var(--sh-xs);
+  padding: var(--s-4);
+  position: relative;
+}
+.step::before {
+  content: attr(data-n);
+  font-family: var(--mono); font-size: var(--fs-12); font-weight: 700;
+  color: var(--p-600);
+  display: inline-grid; place-items: center;
+  width: 28px; height: 28px; border-radius: var(--r-full);
+  background: var(--p-50); border: 1px solid var(--p-200);
+  margin-bottom: var(--s-3);
+}
+.step h4 { font-size: var(--fs-16); font-weight: 700; color: var(--g-900); margin-bottom: var(--s-1); }
+.step p { font-size: var(--fs-12); line-height: 1.55; color: var(--g-500); }
+.step .chip {
+  display: inline-block; margin-top: var(--s-2);
+  font-size: var(--fs-12); font-weight: 600; font-family: var(--mono);
+  color: var(--g-600); background: var(--g-100);
+  padding: 2px 8px; border-radius: var(--r-full);
+}
+@media (max-width: 1020px) { .steps { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 620px)  { .steps { grid-template-columns: 1fr; } }
+
+/* ═══════════ 模式卡 ═══════════ */
+.modes { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: var(--s-6); }
+.mcard {
+  background: var(--g-50); border-radius: var(--r-2); box-shadow: var(--sh-sm);
+  padding: var(--s-6);
+  border-top: 3px solid var(--p-500);        /* 强调条：主卡 */
+}
+.mcard.alt { border-top-color: var(--g-300); }
+.mcard .mk {
+  font-size: var(--fs-12); font-weight: 700; letter-spacing: .06em; color: var(--p-700);
+  text-transform: uppercase; margin-bottom: var(--s-2);
+}
+.mcard.alt .mk { color: var(--g-500); }
+.mcard h3 { font-family: var(--mono); font-size: var(--fs-18); font-weight: 700; color: var(--g-900); margin-bottom: var(--s-2); }
+.mcard p { font-size: var(--fs-14); color: var(--g-600); line-height: 1.6; margin-bottom: var(--s-3); }
+.mcard ul { list-style: none; }
+.mcard li { font-size: var(--fs-14); color: var(--g-600); padding-left: var(--s-4); position: relative; margin-bottom: var(--s-2); }
+.mcard li::before { content: "—"; position: absolute; left: 0; color: var(--g-400); }
+@media (max-width: 900px) { .modes { grid-template-columns: 1fr; } }
+
+/* 动画池小条轮换展示 */
+.spinrow { display: flex; flex-wrap: wrap; gap: var(--s-6); }
+.spinrow .frame {
+  display: flex; flex-direction: column; align-items: center; gap: var(--s-2);
+  min-width: 96px;
+}
+.spinrow .glyph {
+  width: 44px; height: 44px; border-radius: var(--r-2);
+  background: var(--g-100); display: grid; place-items: center;
+  font-size: var(--fs-20); color: var(--g-700);
+  box-shadow: var(--sh-xs);
+}
+.spinrow .nm { font-size: var(--fs-12); font-weight: 600; color: var(--g-500); }
+
+/* ═══════════ 日志面板 ═══════════ */
+.loggrid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: var(--s-12); align-items: center; }
+@media (max-width: 1020px) { .loggrid { grid-template-columns: 1fr; gap: var(--s-8); } }
+.loglist { list-style: none; }
+.loglist li {
+  background: var(--g-50); border-radius: var(--r-2); box-shadow: var(--sh-xs);
+  padding: var(--s-3) var(--s-4); margin-bottom: var(--s-3);
+  display: flex; gap: var(--s-3); align-items: baseline;
+}
+.loglist .ic { color: var(--p-600); font-weight: 700; font-size: var(--fs-14); width: 1.4em; flex-shrink: 0; }
+.loglist b { color: var(--g-900); font-weight: 600; font-size: var(--fs-14); margin-right: var(--s-1); }
+.loglist span { font-size: var(--fs-14); color: var(--g-500); }
+
+.logfile {
+  background: var(--t-bg); border-radius: var(--r-2); box-shadow: var(--sh-lg);
+  font-family: var(--mono); font-size: var(--fs-12); line-height: 1.9;
+  padding: var(--s-4) var(--s-6); color: var(--t-dim); overflow-x: auto;
+}
+.logfile .path { color: var(--p-200); }
+.logfile .row b { color: var(--t-text); font-weight: 400; }
+.logfile .row .ok { color: hsl(152 60% 58%); }
+.logfile .row .wf { color: hsl(40 80% 60%); }
+.logfile .row .er { color: hsl(4 70% 62%); }
+.logfile .row .tm { color: var(--t-dim); }
+
+/* ═══════════ 退出码表 ═══════════ */
+.codes {
+  display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: var(--s-3);
+}
+.code-card {
+  background: var(--g-50); border-radius: var(--r-2); box-shadow: var(--sh-xs);
+  padding: var(--s-4); display: flex; flex-direction: column; gap: var(--s-1);
+}
+.code-card .dot { width: 8px; height: 8px; border-radius: 50%; }
+.code-card .num { font-family: var(--mono); font-size: var(--fs-24); font-weight: 700; color: var(--g-900); font-variant-numeric: tabular-nums; }
+.code-card .lbl { font-size: var(--fs-12); color: var(--g-500); line-height: 1.5; }
+.code-card.ok .dot { background: var(--ok); }
+.code-card.ok { box-shadow: var(--sh-xs), 0 2px 0 var(--ok); }
+.code-card.err { box-shadow: var(--sh-xs), 0 2px 0 var(--err); }
+.code-card.err .dot { background: var(--err); }
+@media (max-width: 900px) { .codes { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 520px) { .codes { grid-template-columns: repeat(2, 1fr); } }
+
+/* 容错策略：折叠而非大表 */
+.callout {
+  margin-top: var(--s-6);
+  background: var(--warn-t); border-radius: var(--r-2);
+  padding: var(--s-4) var(--s-6);
+  display: flex; gap: var(--s-3); align-items: flex-start;
+}
+.callout .ic { color: var(--warn); font-weight: 700; }
+.callout p { font-size: var(--fs-14); color: hsl(36 60% 30%); line-height: 1.6; }
+.callout b { font-weight: 700; }
+
+/* ═══════════ 结构 / 设计说明 ═══════════ */
+.two-card { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: var(--s-6); }
+@media (max-width: 900px) { .two-card { grid-template-columns: 1fr; } }
+.card {
+  background: var(--g-50); border-radius: var(--r-2); box-shadow: var(--sh-sm);
+  padding: var(--s-6);
+}
+.card h3 { font-size: var(--fs-20); font-weight: 700; color: var(--g-900); margin-bottom: var(--s-3); letter-spacing: -.01em; }
+.card .tree {
+  font-family: var(--mono); font-size: var(--fs-13); line-height: 1.85;
+  color: var(--g-600); white-space: pre; overflow-x: auto;
+}
+.card .tree em { font-style: normal; color: var(--g-400); }
+.card .note-list { list-style: none; }
+.card .note-list li { padding: var(--s-3) 0; border-top: 1px solid var(--g-200); font-size: var(--fs-14); color: var(--g-600); line-height: 1.6; }
+.card .note-list li:first-child { border-top: none; padding-top: 0; }
+.card .note-list b { color: var(--g-900); font-weight: 600; display: block; margin-bottom: 2px; }
+
+/* ═══════════ Footer ═══════════ */
+footer {
+  border-top: 1px solid var(--g-200);
+  padding: var(--s-8) 0 var(--s-12);
+  color: var(--g-400); font-size: var(--fs-14);
+}
+footer .frow { max-width: var(--content); margin: 0 auto; padding: 0 var(--s-6);
+  display: flex; flex-wrap: wrap; gap: var(--s-4); align-items: center; }
+footer .frow .spacer { margin-left: auto; }
+footer a { color: var(--g-600); }
+footer a:hover { color: var(--p-700); }
+
+/* 小屏微调 */
+@media (max-width: 620px) {
+  .section { padding: var(--s-16) 0; }
+  .hero { padding-top: var(--s-8); }
+  .hero-copy h1 { font-size: var(--fs-30); }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════ 顶部导航 ═══════════ -->
+<nav class="nav">
+  <div class="nav-inner">
+    <span class="brand"><span class="logo">π</span>pi-launcher</span>
+    <div class="nav-links">
+      <a href="#quick">快速开始</a>
+      <a href="#flow">五步流程</a>
+      <a href="#modes">运行模式</a>
+      <a href="#logs">运行日志</a>
+      <a href="#codes">退出码</a>
+      <a href="#notes">设计说明</a>
+    </div>
+    <div class="nav-cta">
+      <span class="proto-pill">视觉原型 v2 · 未套用</span>
+      <a class="btn btn-ghost" href="https://github.com/Wahero/Pi-luncher" target="_blank">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ═══════════ Hero ═══════════ -->
+<header class="hero">
+  <div class="hero-grid">
+    <div class="hero-copy">
+      <span class="kicker">v1.0.0 · Rust · Windows 优先</span>
+      <h1>一条命令，<span class="hl">完整拉起</span><br>Pi Agent 环境</h1>
+      <p class="lead">
+        环境预检 → <code class="inline">pi update --all</code> → 检查并升级 pi-web → 启动 pi-web（后台）→ 进入 Pi CLI。
+        每一步都有状态与退出码，另有零输出的安静模式与全程日志。
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="#quick">快速开始</a>
+        <a class="btn btn-ghost" href="https://github.com/Wahero/Pi-luncher" target="_blank">查看仓库</a>
+      </div>
+      <div class="hero-meta">
+        <span>发布产物 <b>~390 KB</b></span>
+        <span>日志保留 <b>20 份</b></span>
+        <span>就绪等待上限 <b>60 s</b></span>
+      </div>
+    </div>
+
+    <!-- 终端模拟：switch 用 radio，纯 CSS -->
+    <div class="terminal">
+      <div class="term-bar">
+        <span class="dot c1"></span><span class="dot c2"></span><span class="dot c3"></span>
+        <span class="title">Windows Terminal — pi-launcher</span>
+      </div>
+      <input class="sr s1" id="tab-normal" name="tact" type="radio" checked>
+      <input class="sr s2" id="tab-quiet" name="tact" type="radio">
+      <div class="term-tabs">
+        <label class="term-tab" for="tab-normal">正常模式</label>
+        <label class="term-tab" for="tab-quiet">--quiet</label>
+      </div>      <div class="term-view">
+        <pre id="pane-normal"><span class="t-prompt"><span class="t-path">PS D:\AI</span>&gt;</span> <span class="t-cmd">pi-launcher</span>
+<span class="t-titleb">  ╔══════════════════════════════════════════╗
+  ║  Pi Agent 批量自动化启动工具 v1.0.0      ║
+  ╚══════════════════════════════════════════╝</span>
+
+  <span class="t-dim">本次动画：</span><span class="t-spin"></span> <span class="t-dim">dots（池轮换 3/6 组）</span>
+
+  <span class="t-num">[1/5]</span> <span class="t-ok">环境预检（pi / pi-web / npm）</span>
+  <span class="t-check">✓</span> 命令 `pi`     已就绪
+  <span class="t-check">✓</span> 命令 `pi-web` 已就绪
+  <span class="t-check">✓</span> 命令 `npm`    已就绪
+  <span class="t-check">✓</span> pi / pi-web / npm 全部就绪 <span class="t-dim">(0.2s)</span>
+
+  <span class="t-num">[2/5]</span> <span class="t-ok">执行 pi update --all</span>
+  <span class="t-spin"></span> <span class="t-dim">正在更新 Pi 及扩展包…</span> <span class="t-dim">(12.4s)</span>
+  <span class="t-check">✓</span> Pi 及所有扩展包更新完成 <span class="t-dim">(5.6s)</span>
+
+  <span class="t-num">[3/5]</span> <span class="t-ok">检查并升级 pi-web</span>
+  <span class="t-check">✓</span> pi-web 已是最新版本（v0.12.2）
+
+  <span class="t-num">[4/5]</span> <span class="t-ok">启动 pi-web（常驻后台）</span>
+  <span class="t-bar">━━━━━━━━━━━━━━</span> <span class="t-dim">等待 HTTP 就绪 62% · eta 22s</span>
+
+  <span class="t-num">[5/5]</span> <span class="t-ok">启动 Pi CLI 交互界面</span>
+  <span class="t-dim">（pi-web 已脱离运行，CLI 退出后仍在后台）</span>
+
+  <span class="t-num">整体进度</span> <span class="t-bar">━━━━━━━━━━━━━━━━━</span> <span class="t-num">100%</span>
+  <span class="t-check">✓ 全部步骤完成</span> <span class="t-dim">· 30 秒无输入自动关窗</span><span class="t-cursor"></span></pre>
+
+        <pre id="pane-quiet"><span class="t-prompt"><span class="t-path">PS D:\AI</span>&gt;</span> <span class="t-cmd">pi-launcher --quiet</span>
+
+  <span class="t-ok">pi-launcher（--quiet）：静默启动中，完成后窗口自动关闭。</span>
+  <span class="t-dim">    日志：</span><span class="t-path">C:\Users\you\AppData\Local\pi-launcher\logs</span>
+<span class="t-dim">    …</span>
+  <span class="t-check">✓</span> <span class="t-dim">(窗口自动关闭，退出码 0 —— 全程仅这屏两行)</span><span class="t-cursor"></span></pre>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════ 快速开始 ═══════════ -->
+<section id="quick" class="section">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Get started</div>
+      <h2>快速开始</h2>
+      <p>需要 Rust 工具链与已安装的 Pi Coding Agent（<code class="inline">pi</code>、<code class="inline">pi-web</code>、<code class="inline">npm</code>）。</p>
+    </div>
+    <div class="quick">
+      <div class="qcard">
+        <h3>克隆仓库</h3>
+        <p>源码即项目，无二进制发布渠道。</p>
+        <div class="cmdrow"><span class="dollar">$</span><code class="cmdtext">git clone https://github.com/Wahero/Pi-luncher.git</code>
+          <button class="copy" data-cmd="git clone https://github.com/Wahero/Pi-luncher.git">复制</button></div>
+      </div>
+      <div class="qcard">
+        <h3>构建发布版</h3>
+        <p>体积优化已内置，产物约 390 KB。</p>
+        <div class="cmdrow"><span class="dollar">$</span><code class="cmdtext">cargo build --release</code>
+          <button class="copy" data-cmd="cargo build --release">复制</button></div>
+      </div>
+      <div class="qcard">
+        <h3>运行</h3>
+        <p>直接跑，或先安装 ~/.cargo/bin。</p>
+        <div class="cmdrow"><span class="dollar">$</span><code class="cmdtext">.\target\release\pi-launcher.exe</code>
+          <button class="copy" data-cmd=".\target\release\pi-launcher.exe">复制</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 五步流程 ═══════════ -->
+<section id="flow" class="section">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Pipeline</div>
+      <h2>五个步骤，各自有退出码</h2>
+      <p>失败精确挂点（1–5 号码），日志直达该步骤的错误路径。</p>
+    </div>
+    <div class="steps">
+      <div class="step" data-n="1"><h4>环境预检</h4><p>pi / pi-web / npm 逐个探测；缺命令直接终止。</p><span class="chip">exit 1</span></div>
+      <div class="step" data-n="2"><h4>更新 Pi</h4><p>pi update --all，失败打 stderr 摘要。</p><span class="chip">exit 2</span></div>
+      <div class="step" data-n="3"><h4>升级 pi-web</h4><p>npm view 对比；运行中或被锁则按现版继续。</p><span class="chip">exit 3</span></div>
+      <div class="step" data-n="4"><h4>启动 pi-web</h4><p>detached + HTTP 就绪探测（真实比例，60s 上限）。</p><span class="chip">exit 4</span></div>
+      <div class="step" data-n="5"><h4>进入 Pi CLI</h4><p>前台交互；quiet 模式自动跳过。</p><span class="chip">exit 5</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 运行模式 ═══════════ -->
+<section id="modes" class="section">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Modes</div>
+      <h2>两种日常模式 + 一个可选开关</h2>
+    </div>
+    <div class="modes">
+      <div class="mcard">
+        <div class="mk">正常模式</div>
+        <h3>pi-launcher</h3>
+        <p>动画进度 + Pi CLI 交互 + 结束停留。</p>
+        <ul>
+          <li>按 Enter 立即关窗</li>
+          <li>30 秒无输入自动倒计时关闭</li>
+          <li>非交互终端退化为纯文字</li>
+        </ul>
+      </div>
+      <div class="mcard alt">
+        <div class="mk">安静模式</div>
+        <h3>--quiet · -q · --auto</h3>
+        <p>计划任务与开机自启场景。</p>
+        <ul>
+          <li>近零输出，仅提示日志路径</li>
+          <li>跳过 Pi CLI；supervisor 照常</li>
+          <li>成功 / 失败都自动关窗</li>
+        </ul>
+      </div>
+      <div class="mcard alt">
+        <div class="mk">可选开关</div>
+        <h3>--spin &lt;名字&gt;</h3>
+        <p>固定右侧动画；默认按启动次数在 6 组池中轮换。</p>
+        <ul>
+          <li>-h / --help 显示用法</li>
+          <li>--force-tty 调试渲染路径</li>
+        </ul>
+      </div>
+    </div>
+
+    <div style="margin-top: var(--s-12)">
+      <div class="spinrow">
+        <!-- 动画池 6 组 -->
+        <div class="frame"><span class="glyph" data-spin="dots">⠋</span><span class="nm">dots</span></div>
+        <div class="frame"><span class="glyph" data-spin="dots2">⣾</span><span class="nm">dots2</span></div>
+        <div class="frame"><span class="glyph" data-spin="grow">▁▄▆█</span><span class="nm">grow</span></div>
+        <div class="frame"><span class="glyph" data-spin="moon">🌑🌒</span><span class="nm">moon</span></div>
+        <div class="frame"><span class="glyph" data-spin="clock">🕐</span><span class="nm">clock</span></div>
+        <div class="frame"><span class="glyph" data-spin="hourglass">⏳</span><span class="nm">hourglass</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 日志 ═══════════ -->
+<section id="logs" class="section">
+  <div class="wrap loggrid">
+    <div>
+      <div class="section-head">
+        <div class="eyebrow">Logging</div>
+        <h2>两种模式都落盘的全程日志</h2>
+        <p>计划任务的例外保险：窗口关了，证据还在。</p>
+      </div>
+      <ul class="loglist">
+        <li><span class="ic">№</span><b>每次启动新文件</b><span>自动保留最近 20 份，旧文件清理</span></li>
+        <li><span class="ic">会</span><b>UTF-8 带 BOM</b><span>PowerShell / 记事本正确打开</span></li>
+        <li><span class="ic">时</span><b>本地时间戳</b><span>GetLocalTime，与桌面时钟一致</span></li>
+        <li><span class="ic">内</span><b>步骤起止 + 版本对比</b><span>升级分量、警告、最终退出码全记录</span></li>
+      </ul>
+    </div>
+    <div class="logfile">
+      <div class="path">%LOCALAPPDATA%\pi-launcher\logs\pi-launcher-1a2b3c.log</div>
+      <div class="row"><span class="tm">09:38:45</span>  <span class="tm">[STEP 3/5] 开始</span>：检查并升级 pi-web</div>
+      <div class="row"><span class="tm">09:38:54</span>  <span class="wf">⚠ 发现新版本：v0.11.1 → v0.12.2，正在升级…</span></div>
+      <div class="row"><span class="tm">09:38:57</span>  <span class="wf">⚠ npm EBUSY：运行中的实例锁定文件</span></div>
+      <div class="row"><span class="tm">09:38:57</span>  <span class="tm">[STEP 3/5]</span> <span class="ok">完成：按现有版本继续启动</span><span class="tm"> (5.7s)</span></div>
+      <div class="row"><span class="tm">09:39:59</span>  <span class="er">✗ [STEP 4/5] pi-web 进程在就绪前退出了</span></div>
+      <div class="row"><span class="tm">09:39:59</span>  <span class="tm">最终退出码：4</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 退出码 ═══════════ -->
+<section id="codes" class="section">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Exit codes</div>
+      <h2>计划任务读得懂的 0–5</h2>
+    </div>
+    <div class="codes">
+      <div class="code-card ok"><span class="dot"></span><span class="num">0</span><span class="lbl">全部成功</span></div>
+      <div class="code-card err"><span class="dot"></span><span class="num">1</span><span class="lbl">环境预检失败</span></div>
+      <div class="code-card err"><span class="dot"></span><span class="num">2</span><span class="lbl">pi update 失败</span></div>
+      <div class="code-card err"><span class="dot"></span><span class="num">3</span><span class="lbl">pi-web 检查 / 升级失败</span></div>
+      <div class="code-card err"><span class="dot"></span><span class="num">4</span><span class="lbl">pi-web 启动失败</span></div>
+      <div class="code-card err"><span class="dot"></span><span class="num">5</span><span class="lbl">Pi CLI 异常</span></div>
+    </div>
+    <div class="callout">
+      <span class="ic">ⓘ</span>
+      <p><b>容错策略已内置：</b>pi-web 正在运行 → 跳过升级、按现版继续；升级撞文件锁（EBUSY）→ 警告后继续；真正升级失败才退出码 3。另外自带 supervisor：pi-web 崩溃自动重启（最多 3 次）。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 结构 & 设计说明 ═══════════ -->
+<section id="notes" class="section">
+  <div class="wrap two-card">
+    <div class="card">
+      <h3>项目结构</h3>
+      <div class="tree">pi-launcher/
+├── Cargo.toml            <em># 依赖 + [profile.release] 体积优化</em>
+├── src/
+│   ├── main.rs           <em># 编排 / supervisor / 30 秒关窗</em>
+│   ├── ui.rs             <em># 统一输出层 + 文字日志</em>
+│   ├── steps.rs          <em># 1-5 号步骤</em>
+│   └── command_runner.rs <em># 探测 / detached 启动</em>
+├── tools/gen-docs.ps1    <em># 文档再生成</em>
+├── docs/Pi-Luncher.html  <em># 设计说明（v1.0 同步）</em>
+└── README.md</div>
+    </div>
+    <div class="card">
+      <h3>四条设计决定</h3>
+      <ul class="note-list">
+        <li><b>输出全部走 ui.rs</b>同一份步骤逻辑在动画终端 / CI / 计划任务三种环境下行为一致，安静态零输出但日志照写。</li>
+        <li><b>不伪造进度</b>npm 的内情不可见，只显示「已耗时 + 转圈」；唯一确定时长（就绪等待 60s）才给真实比例。</li>
+        <li><b>CLI 前清掉进度条</b>Pi CLI 是全屏 TUI，残留 bar 会打架；清完之后 supervisor 消息降级为普通打印。</li>
+        <li><b>supervisor 两种模式都在</b>quiet 时没有人盯窗口，pi-web 照样可能崩，守护不随渲染模式变化。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="frow">
+    <span>pi-launcher · 视觉原型 v2（本页未套用至真实文档）</span>
+    <span class="spacer"></span>
+    <a href="https://github.com/Wahero/Pi-luncher">GitHub</a>
+    <span>·</span>
+    <a href="https://github.com/Wahero/Pi-luncher/blob/main/LICENSE">Apache-2.0</a>
+  </div>
+</footer>
+
+<script>
+/* 复制按钮：读取 data-cmd（或 data-plain）写入剪贴板并短反馈 */
+document.querySelectorAll('.copy').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var t = b.dataset.plain || b.dataset.cmd;
+    if (!t) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(t).then(function () { flash(b, '已复制'); });
+    } else {
+      var i = document.createElement('textarea');
+      i.value = t; document.body.appendChild(i); i.select();
+      try { document.execCommand('copy'); flash(b, '已复制'); } catch (e) { flash(b, '复制失败'); }
+      document.body.removeChild(i);
+    }
+  });
+  function flash (btn, txt) {
+    var w = btn.textContent;
+    btn.textContent = txt;
+    setTimeout(function () { btn.textContent = w; }, 900);
+  }
+});
+</script>
+
+</body>
+</html>
