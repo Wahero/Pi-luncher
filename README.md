@@ -110,8 +110,9 @@ pi-launcher/
 ├── tools/
 │   └── gen-docs.ps1    # 从当前源码再生成 docs/Pi-Luncher.html
 ├── docs/
-│   └── Pi-Luncher.html # 完整设计说明（与源码同步，v1.1.3；
-│                       #   可直接在浏览器打开，或点开仓库内文件渲染）
+│   ├── Pi-Luncher.html # 完整设计说明（与源码同步，v1.1.3；
+│   │                   #   可直接在浏览器打开，或点开仓库内文件渲染）
+│   └── WORKLOG.md      # 工作记录：已完成工作的动因 / 证据 / 验证 / 遗留项
 ├── AGENTS.md           # 项目规则（体积优化等，构建代理必读）
 └── README.md
 ```
