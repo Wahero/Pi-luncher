@@ -214,8 +214,8 @@ fn run_normal(args: &Args, host: String, port: u16) -> i32 {
 
     match boot_pipeline(&mut ui, &host, port) {
         Err(code) => {
-            // 失败：整体条收场，凝固行（含 ✗ 行）保留在屏幕上供停屏观察
-            ui.overall_finish();
+            // 失败：撤场并把凝固行（含 ✗ 行）重放为普通行，收尾倒数走纯 stdout
+            ui.replay_ledger();
             wait_and_exit(code);
         }
         Ok(WebStart::Spawned(child)) => {

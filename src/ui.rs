@@ -21,7 +21,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 use unicode_width::UnicodeWidthStr;
 
-pub const VERSION: &str = "1.1.0";
+pub const VERSION: &str = "1.1.1";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
@@ -499,7 +499,13 @@ impl Ui {
                 };
                 bar.set_style(sty);
                 bar.set_prefix(self.running_prefix());
-                bar.set_message(row_label.to_string());
+                // spin 行右侧动作位初始为「执行中…」，避免 wide_msg 重复显示步骤名；
+                // det 行模板不含 {msg}，置空即可
+                bar.set_message(if det {
+                    String::new()
+                } else {
+                    "执行中…".to_string()
+                });
                 bar.enable_steady_tick(std::time::Duration::from_millis(90));
                 self.current_bar = Some(bar);
             }
@@ -576,6 +582,12 @@ impl Ui {
             } else {
                 bar.finish_and_clear();
             }
+        } else if interactive {
+            // 步骤行已交接为纯文本（如 Pi CLI 交互前后）：无 bar 可凝固，直接落普通行
+            let line = self.frozen_line(ok, msg, secs);
+            if let Kind::Interactive { mp, .. } = &self.kind {
+                mp.println(line).ok();
+            }
         }
         self.step_started = None;
 
@@ -599,23 +611,20 @@ impl Ui {
         }
     }
 
-    /// 启动 pi CLI 前清掉所有剩余渲染（TUI 与 bar 重绘会互相打架）
-    pub fn overall_finish(&mut self) {
-        if let Some(overall) = self.overall.take() {
-            overall.finish_and_clear();
-        }
-    }
-
-    /// 成功收尾：撤掉底部整体条与凝固行后的活动渲染，再把凝固行原样重放为普通行，
-    /// 让收尾信息（日志路径、✓ 全部完成）自然排在账目最后一行之后。
-    /// 失败路径不调用本方法——失败时保留凝固现场，便于停屏观察。
+    /// 渲染交接：撤掉全部活体渲染（底部整体条 + 当前步骤行 + 已凝固行），
+    /// 再把凝固行原样重放为普通行。三处调用：
+    /// - 交出屏幕给 pi TUI 前（步骤 5）：pi 的 inline TUI 与任何还在重绘的 bar
+    ///   都会互相糊画面（v1.1.0 回归事故），交接后本层只允许纯 println；
+    /// - 成功收尾：让日志路径 / ✓ 全部步骤完成排在账目行之后；
+    /// - 失败（步骤 1-4）：账目保持可见，只是从活体渲染定格为纯文本，
+    ///   收尾倒数也因此走纯 stdout，与游标不再有任何竞争。
     pub fn replay_ledger(&mut self) {
         let is_interactive = matches!(&self.kind, Kind::Interactive { .. });
         if !is_interactive {
             return;
         }
 
-        // 与 kind 的不可变借用不相交的经典字段操作，逐个处理
+        // 字段级借用互相独立，逐个处理
         if let Some(overall) = self.overall.take() {
             overall.finish_and_clear();
         }
@@ -784,5 +793,37 @@ mod tests {
             }
             let _ = overall_style(d);
         }
+    }
+
+    #[test]
+    fn cli_handoff_replays_and_clears_render() {
+        // v1.1.0 回归：pi TUI 期间残留活体渲染（整体条 + 凝固行 + 当前行带 90ms
+        // 定时重绘）→ 与 inline TUI 互相糊画面、账目行重复打印。
+        // handoff 契约：replay_ledger 后不得残留任何 bar 状态；
+        // 交接后 step_ok / step_fail 无 bar 也不得 panic。
+        for d in [Display::Ledger, Display::Lite, Display::Min] {
+            let mut ui = Ui::init(Mode::Normal, d, true, None, 5);
+            ui.step_start(1, "环境预检", "环境预检", false);
+            ui.step_ok("就绪");
+            ui.step_start(2, "更新", "pi update --all", false);
+            ui.step_progress(0.4);
+            ui.step_ok("完成");
+
+            ui.step_start(5, "CLI", "Pi CLI", false);
+            ui.replay_ledger(); // 交接：全部撤场 + 账目转纯文本
+            assert!(ui.overall.is_none(), "{d:?}: 整体条未撤场");
+            assert!(ui.current_bar.is_none(), "{d:?}: 当前行未撤场");
+            assert!(ui.frozen_bars.is_empty(), "{d:?}: 凝固 bar 未撤场");
+            assert!(ui.frozen_rows.is_empty(), "{d:?}: 账目行未重放");
+
+            ui.step_ok("Pi CLI 已正常退出"); // 无 bar 路径，不得 panic
+        }
+        // 失败路径同样交接后收尾
+        let mut ui = Ui::init(Mode::Normal, Display::Ledger, true, None, 5);
+        ui.step_start(2, "更新", "pi update --all", false);
+        ui.step_fail("模拟失败");
+        ui.replay_ledger();
+        assert!(ui.current_bar.is_none());
+        assert!(ui.frozen_bars.is_empty());
     }
 }

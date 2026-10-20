@@ -268,8 +268,9 @@ pub fn step_pi_web(ui: &mut Ui, host: &str, port: u16) -> Result<WebStart, Strin
 pub fn step_pi_cli(ui: &mut Ui) -> Result<(), String> {
     ui.step_start(5, "启动 Pi CLI 交互界面", "Pi CLI", false);
 
-    // CLI 是 TUI：清掉剩余渲染（底部整体条），避免重绘互相打架
-    ui.overall_finish();
+    // CLI 是 TUI：先撤掉全部活体渲染并把账目行重放为纯文本——
+    // pi 的 inline TUI 与任何还在重绘的 bar 会互相糊画面（v1.1.0 回归事故）
+    ui.replay_ledger();
 
     ui.message("  正在启动 Pi CLI 交互界面…");
     ui.message("  （退出 CLI 不影响已脱离运行的 pi-web）");
