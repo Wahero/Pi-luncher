@@ -1,4 +1,4 @@
-# 一次性脚本：用当前源码重新生成 docs/Pi-Luncher.html（v1.1.2 同步版）。
+# 一次性脚本：用当前源码重新生成 docs/Pi-Luncher.html（v1.1.3 同步版）。
 # 旧文档的手写高亮无法逐段维护，改为：沿用旧 CSS/外壳 + 源码纯文本转义注入。
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -43,7 +43,7 @@ $html = @"
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pi Agent 批量自动化启动工具 - Rust 实现 v1.1.2</title>
+<title>Pi Agent 批量自动化启动工具 - Rust 实现 v1.1.3</title>
 $css
 </head>
 <body>
@@ -82,7 +82,7 @@ $css
         支持安静模式（自动化 / 计划任务）与全程文字日志。
       </p>
       <div class="tags">
-        <span>v1.1.2</span>
+        <span>v1.1.3</span>
         <span>Rust 2021</span>
         <span>indicatif 0.17</span>
         <span>脱离式后台</span>
@@ -355,7 +355,7 @@ panic = "abort"</code></pre>
     </section>
 
     <footer>
-      Pi Agent 批量自动化启动工具 · Rust 实现文档 · v1.1.2
+      Pi Agent 批量自动化启动工具 · Rust 实现文档 · v1.1.3
     </footer>
 
   </main>

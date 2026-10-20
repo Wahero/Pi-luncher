@@ -30,13 +30,16 @@ Pi Agent 批量自动化启动工具（Rust 实现）。
 ## 前置依赖
 
 - Rust 2021 工具链（`rustc` / `cargo`）
-- 已安装 Pi Coding Agent：
+- 已安装 Pi Coding Agent 与 pi-web（**两个独立 npm 包**，`pi` 来自前者，`pi-web` 来自后者）：
 
   ```bash
   npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+  npm install -g @agegr/pi-web
   ```
 
   需确保 `pi`、`pi-web` 两个命令在 `PATH` 中。
+
+  > 若 `npm ls -g` 看得到 `@agegr/pi-web`、但 `where pi-web` 找不到：说明 npm 建命令入口（shim）时没做完，全局目录里会残留 `.pi-web-xxxx` 临时文件。用 `npm install -g @agegr/pi-web --force` 重装即可修复（先 `pi-web stop` 避免文件锁）。
 
 ## 编译与运行
 
@@ -61,7 +64,7 @@ cargo run --release
 正常模式默认为 **A · 工作账**（`--display a`）——一步一行、完成瞬间原位凝固：
 
 ```
-  PI LAUNCHER · v1.1.2                        动画 dots · 池 1/6 组
+  PI LAUNCHER · v1.1.3                        动画 dots · 池 1/6 组
   ──────────────────────────────────────────────────────────────────────
 
   1/5 环境预检                ⠙ 0.3s 检查命令 `npm` …
@@ -107,7 +110,7 @@ pi-launcher/
 ├── tools/
 │   └── gen-docs.ps1    # 从当前源码再生成 docs/Pi-Luncher.html
 ├── docs/
-│   └── Pi-Luncher.html # 完整设计说明（与源码同步，v1.1.2；
+│   └── Pi-Luncher.html # 完整设计说明（与源码同步，v1.1.3；
 │                       #   可直接在浏览器打开，或点开仓库内文件渲染）
 ├── AGENTS.md           # 项目规则（体积优化等，构建代理必读）
 └── README.md
@@ -126,7 +129,7 @@ codegen-units = 1
 panic = "abort"
 ```
 
-v1.1.2 实测 408,064 字节（≈398.5 KB；较 v1.0.0 基线 +2.2%，为新增 `--display` 三档显示引擎；v1.1.1 的 TUI 交接修复与 v1.1.2 的结束停留修复均保持同尺寸）。
+v1.1.2 实测 408,064 字节（≈398.5 KB；较 v1.0.0 基线 +2.2%，为新增 `--display` 三档显示引擎；v1.1.1 的 TUI 交接修复与 v1.1.2 的结束停留修复均保持同尺寸）；v1.1.3（预检提示按命令拆分）为 408,576 字节（+512 B / +0.13%，纯版本号变更导致，无功能体积增长）。
 
 ## 常见问题
 
@@ -136,6 +139,7 @@ v1.1.2 实测 408,064 字节（≈398.5 KB；较 v1.0.0 基线 +2.2%，为新增
 
 ## 近期更新
 
+- **v1.1.3**：环境预检的安装提示按命令拆分——`pi` 与 `pi-web` 分属 `@earendil-works/pi-coding-agent` / `@agegr/pi-web` 两个独立包，缺 `pi-web` 不再误指向 `pi-coding-agent`；`pi-web` 缺失时额外提示「已装却没命令」多为 npm 建命令入口（shim）失败，可用 `--force` 重装修复。
 - **v1.1.2**：结束停留进入时自动清空 pi CLI 残留按键——退出 CLI 后窗口不再被一个残留的 Enter 瞬间关掉，30 秒倒计时稳定显示；倒计时超时沿用本次退出码（此前一律按 `0` 退出，失败停留会被自动化误判成功）。
 - **v1.1.1**：修复 Pi CLI 运行期间进度条与 TUI 互相重绘、账目行被重复打印的问题——交接前撤掉全部活动渲染（整体条、凝固行、当前行），账目定格为纯文本，pi 期间 launcher 零重绘。
 - **v1.1.0**：新增 `--display` 三档显示模式（A 工作账 / B 轻修 / C 极简）与固定底部整体条、行凝固 / 账目重放引擎；预检项改为行内动态动作并写入日志。

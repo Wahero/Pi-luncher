@@ -24,6 +24,22 @@ pub enum WebStart {
     AlreadyRunning,
 }
 
+/// `pi` 命令所属的 npm 包（Pi Coding Agent 本体）
+const PI_INSTALL_CMD: &str = "npm install -g --ignore-scripts @earendil-works/pi-coding-agent";
+/// `pi-web` 命令所属的 npm 包：与 `pi` 是两个独立包，装错包补不出 `pi-web`。
+const PI_WEB_INSTALL_CMD: &str = "npm install -g @agegr/pi-web";
+/// `npm` 缺失只能装 Node.js，没有 npm 命令可用
+const NPM_INSTALL_CMD: &str = "https://nodejs.org/ 安装 Node.js（装完重开终端）";
+
+/// 缺失命令对应的安装提示：每个命令来自不同来源，不能共用一条提示。
+fn install_hint(name: &str) -> &'static str {
+    match name {
+        "pi" => PI_INSTALL_CMD,
+        "pi-web" => PI_WEB_INSTALL_CMD,
+        _ => NPM_INSTALL_CMD,
+    }
+}
+
 /// 步骤 1：环境预检（pi / pi-web / npm）
 /// 行内只显示一行（右上侧动态报当前检查项），逐项就绪写进日志。
 pub fn step_preflight(ui: &mut Ui) -> Result<(), String> {
@@ -33,14 +49,15 @@ pub fn step_preflight(ui: &mut Ui) -> Result<(), String> {
     for name in &required {
         ui.step_message(&format!("检查命令 `{}` …", name));
         if !command_exists(name) {
-            let msg = format!(
-                "未找到命令 `{}`。请先安装 Pi Coding Agent：\n   npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
-                name
-            );
+            let hint = install_hint(name);
+            let msg = format!("未找到命令 `{}`，请先执行：\n   {}", name, hint);
             ui.step_fail(&format!("未找到命令 `{}`", name));
-            ui.message(
-                "    需先执行：npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
-            );
+            ui.message(&format!("    需先执行：{}", hint));
+            if *name == "pi-web" {
+                // 包已装但 npm 建 shim 失败（残留 .pi-web-xxxx 临时文件）时，
+                // 会表现成「装了却没有命令」，重装可重新生成入口。
+                ui.message("    若已安装却仍缺命令（npm 建命令入口失败），用 --force 重装即可修复");
+            }
             return Err(msg);
         }
         ui::log(&format!("  ✓ 命令 `{}` 已就绪", name));

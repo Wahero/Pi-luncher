@@ -21,7 +21,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 use unicode_width::UnicodeWidthStr;
 
-pub const VERSION: &str = "1.1.2";
+pub const VERSION: &str = "1.1.3";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
