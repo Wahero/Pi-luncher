@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>pi-launcher · CLI 输出层规格（v1.1.1 已实装）</title>
+<title>pi-launcher · CLI 输出层规格（v1.1.2 已实装）</title>
 <style>
 /* ════════════════════════════════════════════════════════════════
    pi-launcher CLI 输出层 视觉原型 v2
@@ -165,7 +165,7 @@ code.k { font-family: var(--mono); font-size: .92em; color: var(--run); backgrou
 .r-a.idle .c1 { color: hsl(0 0% 33%); }
 .r-a.idle .c5 { color: hsl(0 0% 33%); }
 
-/* B 行状态：待机整行降灰（v1.1.1 实装后行不预占，样式留作历史备档） */
+/* B 行状态：待机整行降灰（v1.1.2 实装后行不预占，样式留作历史备档） */
 .r-b.idle .c2 { color: hsl(0 0% 33%); }
 
 /* C 行：极简单行流（两种模板） */
@@ -261,7 +261,7 @@ footer .fin { max-width: 1060px; margin: 0 auto; padding: 0 var(--s-6); display:
     <a class="j" href="#c">C 极简</a>
     <a class="j" href="#sys">符号系统</a>
     <span class="spacer"></span>
-    <span class="pill">v1.1.1 已实装</span>
+    <span class="pill">v1.1.2 已实装</span>
   </div>
 </nav>
 
@@ -274,7 +274,7 @@ footer .fin { max-width: 1060px; margin: 0 auto; padding: 0 var(--s-6); display:
       改造范围仅限输出层模板：五步流程、退出码 0–5、日志、supervisor 全不变。
       以下每张卡＝<b>80 列等宽</b>模拟（网格排，CJK 宽差不影响对齐），
       颜色用 Windows Terminal 默认色板，spinner 是真实帧动画。
-      <b style="color: var(--ink)">v1.1.1 已实装</b>
+      <b style="color: var(--ink)">v1.1.2 已实装</b>
       ——三档全部落地，由 <code class="k">--display</code> 参数切换，预设 A。
     </p>
   </div>
@@ -283,7 +283,7 @@ footer .fin { max-width: 1060px; margin: 0 auto; padding: 0 var(--s-6); display:
 <!-- ═══════════ §1 参数规格 ═══════════ -->
 <section id="spec" class="section" style="padding-top: var(--s-4)">
   <div class="wrap">
-    <div class="eyebrow">新增参数 · 已实装（v1.1.1）</div>
+    <div class="eyebrow">新增参数 · 已实装（v1.1.2）</div>
     <h2>--display &lt;A|B|C&gt;：显示模式，三档各成一体</h2>
     <p class="lead">
       不再是三选一的提案，而是<b>运行参数</b>。同一套行凝固引擎，六张行模板 + 三张开场按档切换。
@@ -376,7 +376,7 @@ footer .fin { max-width: 1060px; margin: 0 auto; padding: 0 var(--s-6); display:
     <p class="lead">
       每个步骤<b>只有一行</b>：进行中实时刷新（spinner / 进度条 + elapsed + 当前动作），
       完成后在原位凝固为 <span class="ok">✓</span> + 结论。信息只增不改位置，视线不需要回跳。
-      v1.1.1 起<b>这就是默认画面</b>；行只在所属步骤开始时出现，不预占空行。
+      v1.1.2 起<b>这就是默认画面</b>；行只在所属步骤开始时出现，不预占空行。
     </p>
 
     <div class="pair">
@@ -384,7 +384,7 @@ footer .fin { max-width: 1060px; margin: 0 auto; padding: 0 var(--s-6); display:
         <div class="tbar"><span class="dots"><i></i><i></i><i></i></span><span class="t">Windows Terminal — pi-launcher（模式 A · --display a · 进行中）</span><span class="w">─ ▢ ✕</span></div>
         <div class="term-scroll"><div class="scr">
           <div class="gap r-band ln">
-            <span class="l wht">PI LAUNCHER · v1.1.1</span><span class="dim">动画 dots · 池 3/6 组</span>
+            <span class="l wht">PI LAUNCHER · v1.1.2</span><span class="dim">动画 dots · 池 3/6 组</span>
           </div>
           <div class="rule"></div>
           <div class="ln r-a done">
@@ -410,7 +410,7 @@ footer .fin { max-width: 1060px; margin: 0 auto; padding: 0 var(--s-6); display:
         </div></div>
       </div>
       <div class="note">
-        <span class="tag">已实装（v1.1.1）</span>
+        <span class="tag">已实装（v1.1.2）</span>
         <h3>Rust 端怎么落的</h3>
         <ul>
           <li><b>行凝固引擎：</b>在 <code class="k">ui.rs</code>——每步一行挂在 <code>MultiProgress</code> 上，用 <code>insert(idx-1)</code> 把步骤行插到整体条上方，<b>整体条钉死屏幕底部</b>；完成瞬间该行原位换成静态 ✓/✗ 文本并停刷（URL 等结论并入结论列）。</li>
@@ -511,7 +511,7 @@ footer .fin { max-width: 1060px; margin: 0 auto; padding: 0 var(--s-6); display:
           <div class="tbar"><span class="dots"><i></i><i></i><i></i></span><span class="t">模式 B · 失败（退出码 2）</span><span class="w">─ ▢ ✕</span></div>
           <div class="term-scroll"><div class="scr">
             <div class="gap"></div>
-            <div class="b-row">  <span class="dim">╭ Pi Agent 批量自动化启动工具 · v1.1.1 ╮（圆角细框同开场）</span></div>
+            <div class="b-row">  <span class="dim">╭ Pi Agent 批量自动化启动工具 · v1.1.2 ╮（圆角细框同开场）</span></div>
             <div class="gap"></div>
             <div class="ln r-b">
               <span class="c1">[1/5]</span><span class="c2">环境预检</span><span class="c3">───────────────</span><span class="st-ok">✓</span><span class="c5">0.2s</span><span class="c6">pi · pi-web · npm 就绪</span>
@@ -537,7 +537,7 @@ footer .fin { max-width: 1060px; margin: 0 auto; padding: 0 var(--s-6); display:
           <div class="tbar"><span class="dots"><i></i><i></i><i></i></span><span class="t">模式 C · 完成 + 倒计时</span><span class="w">─ ▢ ✕</span></div>
           <div class="term-scroll"><div class="scr">
             <div class="gap"></div>
-            <div class="b-row"><span class="wht">pi-launcher</span> <span class="dim">v1.1.1 · 动画 dots（池 3/6 组）</span></div>
+            <div class="b-row"><span class="wht">pi-launcher</span> <span class="dim">v1.1.2 · 动画 dots（池 3/6 组）</span></div>
             <div class="gap"></div>
             <div class="ln r-c2">
               <span class="c1 drk">1·</span><span class="c2">预检</span><span class="st-ok">✓</span><span class="c4">0.2s</span><span class="c5"></span>
@@ -586,7 +586,7 @@ footer .fin { max-width: 1060px; margin: 0 auto; padding: 0 var(--s-6); display:
           <div class="gap"></div>
           <div class="banner" style="--bw: 46ch">
             <span>  ╭</span><span class="mid">──────────────────────────────────────────────</span><span>╮</span>
-            <span>  │</span><span class="mid"> Pi Agent 批量自动化启动工具 · v1.1.1          </span><span>│</span>
+            <span>  │</span><span class="mid"> Pi Agent 批量自动化启动工具 · v1.1.2          </span><span>│</span>
             <span>  ╰</span><span class="mid">──────────────────────────────────────────────</span><span>╯</span>
           </div>
           <div class="b-row">  <span class="dim">动画 dots · 池 3/6 组（--spin 可固定）</span></div>
@@ -610,7 +610,7 @@ footer .fin { max-width: 1060px; margin: 0 auto; padding: 0 var(--s-6); display:
         </div></div>
       </div>
       <div class="note">
-        <span class="tag">已实装（v1.1.1）</span>
+        <span class="tag">已实装（v1.1.2）</span>
         <h3>Rust 端怎么落的</h3>
         <ul>
           <li><b>与 A 共引擎：</b>同一个行凝固引擎，仅换模板字符串与开场三件（圆角框 + 信息行 + 空行）——<code>ProgressStyle</code> 梳式差异，风险与 A 一致。</li>
@@ -636,7 +636,7 @@ footer .fin { max-width: 1060px; margin: 0 auto; padding: 0 var(--s-6); display:
         <div class="tbar"><span class="dots"><i></i><i></i><i></i></span><span class="t">Windows Terminal — pi-launcher（模式 C · --display c · 进行中）</span><span class="w">─ ▢ ✕</span></div>
         <div class="term-scroll"><div class="scr">
           <div class="gap"></div>
-          <div class="b-row"><span class="wht">pi-launcher</span> <span class="dim">v1.1.1 · 动画 dots（池 3/6 组）</span></div>
+          <div class="b-row"><span class="wht">pi-launcher</span> <span class="dim">v1.1.2 · 动画 dots（池 3/6 组）</span></div>
           <div class="gap"></div>
           <div class="ln r-c2">
             <span class="c1 drk">1·</span><span class="c2">预检</span><span class="st-ok">✓</span><span class="c4">0.2s</span><span class="c5"></span>
@@ -655,7 +655,7 @@ footer .fin { max-width: 1060px; margin: 0 auto; padding: 0 var(--s-6); display:
         </div></div>
       </div>
       <div class="note">
-        <span class="tag">已实装（v1.1.1）</span>
+        <span class="tag">已实装（v1.1.2）</span>
         <h3>Rust 端怎么落的</h3>
         <ul>
           <li><b>共用引擎的第三张皮：</b>行模板收窄到 10 列（短名 + 状态 + 耗时）、开场仅 1 行标题；整体条也收窄（16 格）。</li>
@@ -696,9 +696,9 @@ footer .fin { max-width: 1060px; margin: 0 auto; padding: 0 var(--s-6); display:
 <section class="section" style="padding-top: var(--s-4)">
   <div class="wrap">
     <div class="lead" style="margin-bottom: 0">
-      <b style="color: var(--ink)">已实装（v1.1.1，2026-10-20）：</b>三档显示模式随 <code class="k">--display</code> 参数落地，预设 A；
+      <b style="color: var(--ink)">已实装（v1.1.2，2026-10-20）：</b>三档显示模式随 <code class="k">--display</code> 参数落地，预设 A；
       以桌面 Windows Terminal 目视验收为准。构建核对 <code class="k">pi-launcher.exe</code> 新基线
-      <b>408,064 bytes</b>（v1.0.0 399,360 → +2.2%）。README 与 docs/Pi-Luncher.html 已同步 v1.1.1。
+      <b>408,064 bytes</b>（v1.0.0 399,360 → +2.2%）。README 与 docs/Pi-Luncher.html 已同步 v1.1.2。
       本页保留为 CLI 输出层的版式与状态语言规格。
     </div>
   </div>
@@ -706,7 +706,7 @@ footer .fin { max-width: 1060px; margin: 0 auto; padding: 0 var(--s-6); display:
 
 <footer>
   <div class="fin">
-    <span>pi-launcher CLI 输出层规格 · v1.1.1 已实装（设计稿保留备考）</span>
+    <span>pi-launcher CLI 输出层规格 · v1.1.2 已实装（设计稿保留备考）</span>
     <span>·</span>
     <a href="https://github.com/Wahero/Pi-luncher">GitHub</a>
     <span>·</span>

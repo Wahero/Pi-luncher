@@ -314,11 +314,18 @@ fn pause_before_exit(exit_code: i32) {
         return;
     }
 
+    // 清空 pi CLI/子进程留下的输入残键：如果停留在开始时输入队列里已经挂着
+    // 一个未消费的换行/按键，下面的 read_line 会立即读到 → 「按 Enter 立即关窗」
+    // 被瞬间触发，30 秒停留完全没跑起来（v1.1.2 修复）。清场之后重新计数，
+    // 只有本次停留期间的新输入才算「按 Enter 立即关闭」。
+    flush_pending_console_input();
+
     println!();
     let pressed = Arc::new(AtomicBool::new(false));
     {
         let pressed = Arc::clone(&pressed);
         let secs = WAIT_AUTOCLOSE_SECS;
+        let code = exit_code;
         thread::spawn(move || {
             for remain in (1..=secs).rev() {
                 if pressed.load(Ordering::SeqCst) {
@@ -330,7 +337,9 @@ fn pause_before_exit(exit_code: i32) {
             }
             if !pressed.load(Ordering::SeqCst) {
                 ui::log("30 秒无输入，自动关闭");
-                process::exit(0);
+                // 倒数超时沿用本次退出码（修复：此前一律 exit(0)，
+                // 失败停留的超时关窗会被计划任务误判为成功）
+                process::exit(code);
             }
         });
     }
@@ -340,6 +349,20 @@ fn pause_before_exit(exit_code: i32) {
     pressed.store(true, Ordering::SeqCst);
     println!();
 }
+
+/// 清空本进程控制台的等待输入队列（仅 Windows 实现；其它平台无对应队列）。
+#[cfg(windows)]
+fn flush_pending_console_input() {
+    use windows_sys::Win32::System::Console::{
+        FlushConsoleInputBuffer, GetStdHandle, STD_INPUT_HANDLE,
+    };
+    unsafe {
+        let _ = FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
+    }
+}
+
+#[cfg(not(windows))]
+fn flush_pending_console_input() {}
 
 // ────────────────────────────────────────────────────────────────
 // pi-web 守护线程：崩溃自动重启（最多 MAX_RESTARTS 次）+ HTTP 健康告警
