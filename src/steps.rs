@@ -1,6 +1,6 @@
 use crate::command_runner::{
-    build_command, command_exists, probe_http, run_capture, run_checked, spawn_detached,
-    terminate_background, wait_ready, RunResult, StartupOutcome,
+    build_command, command_exists, probe_pi_web, run_capture, run_checked, spawn_detached,
+    terminate_background, wait_ready, RunResult, StartupOutcome, WebProbe,
 };
 use crate::ui::{self, Ui};
 use std::process::Child;
@@ -110,8 +110,9 @@ pub fn step_pi_web_upgrade(ui: &mut Ui, host: &str, port: u16) -> Result<(), Str
     ui.step_start(3, "检查并升级 pi-web", "检查并升级 pi-web", false);
 
     // 运行中的实例会锁定包目录，npm -g 升级必然失败（EBUSY），
-    // 因此先探测：在运行就跳过升级，保留现有版本。
-    if probe_http(host, port) {
+    // 因此先探测：确认是 pi-web 在跑就跳过升级，保留现有版本。
+    // 只认 pi-web 本体（probe_pi_web），端口被别的 HTTP 服务占着不算「已在运行」。
+    if probe_pi_web(host, port) == WebProbe::Up {
         ui.step_ok(&format!(
             "pi-web 正在运行（http://{}:{}），跳过升级",
             host, port
@@ -230,14 +231,27 @@ fn run_upgrade_install(ui: &mut Ui) -> Result<(), String> {
 pub fn step_pi_web(ui: &mut Ui, host: &str, port: u16) -> Result<WebStart, String> {
     ui.step_start(4, "启动 pi-web（常驻后台）", "启动 pi-web（后台）", true);
 
-    // 已在运行？直接跳过，避免端口冲突
-    if probe_http(host, port) {
-        let msg = format!(
-            "pi-web 已在运行：http://{}:{}，跳过启动（保留原进程，本次不做崩溃监控）",
-            host, port
-        );
-        ui.step_ok(&msg);
-        return Ok(WebStart::AlreadyRunning);
+    // 已在运行？直接跳过，避免端口冲突。
+    // 这里必须确认「跑的是 pi-web」：端口被别的服务占着时不能当成已就绪，
+    // 否则后面的 Pi CLI 会连到一个完全不相干的服务上。
+    match probe_pi_web(host, port) {
+        WebProbe::Up => {
+            let msg = format!(
+                "pi-web 已在运行：http://{}:{}，跳过启动（保留原进程，本次不做崩溃监控）",
+                host, port
+            );
+            ui.step_ok(&msg);
+            return Ok(WebStart::AlreadyRunning);
+        }
+        WebProbe::Foreign => {
+            let msg = format!(
+                "端口 {} 被非 pi-web 的 HTTP 服务占用，无法启动 pi-web；请换端口（PORT 环境变量）或停掉该服务",
+                port
+            );
+            ui.step_fail(&msg);
+            return Err(msg);
+        }
+        WebProbe::Down => {}
     }
 
     ui.step_message("正在启动 pi-web 服务…");
@@ -282,12 +296,24 @@ pub fn step_pi_web(ui: &mut Ui, host: &str, port: u16) -> Result<WebStart, Strin
 ///
 /// 注意：`pi` 的 `--mode` 只接受 text / json / rpc，并没有 interactive；
 /// 交互模式是在「stdin/stdout 都是 TTY 且非 --print」时的预设行为，所以直接跑 `pi`。
-pub fn step_pi_cli(ui: &mut Ui) -> Result<(), String> {
+///
+/// 启动前先复核 pi-web 是否真的就绪：步骤 4 可能只是复用了外部实例（AlreadyRunning），
+/// 该实例在本进程等待期间可能已经退出；此时仍然拉起 CLI 只会让用户对着一个连不上的服务操作。
+pub fn step_pi_cli(ui: &mut Ui, host: &str, port: u16) -> Result<(), String> {
     ui.step_start(5, "启动 Pi CLI 交互界面", "Pi CLI", false);
 
     // CLI 是 TUI：先撤掉全部活体渲染并把账目行重放为纯文本——
     // pi 的 inline TUI 与任何还在重绘的 bar 会互相糊画面（v1.1.0 回归事故）
     ui.replay_ledger();
+
+    if probe_pi_web(host, port) != WebProbe::Up {
+        let msg = format!(
+            "pi-web 未就绪（http://{}:{}），已中止启动 Pi CLI",
+            host, port
+        );
+        ui.step_fail(&msg);
+        return Err(msg);
+    }
 
     ui.message("  正在启动 Pi CLI 交互界面…");
     ui.message("  （退出 CLI 不影响已脱离运行的 pi-web）");

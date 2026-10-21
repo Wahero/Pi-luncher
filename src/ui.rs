@@ -13,15 +13,15 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 use console::{style, Term};
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle, TermLike};
 use std::fs::{self, File};
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 use unicode_width::UnicodeWidthStr;
 
-pub const VERSION: &str = "1.1.3";
+pub const VERSION: &str = "1.1.4";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
@@ -215,10 +215,10 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 动画池（--quiet 不适用；每次启动按日志数循环轮换）
+// 动画池（--quiet 不适用；每次启动循环轮换）
 // ────────────────────────────────────────────────────────────────
 
-///（用户选定的集合：dots / dots2 / growVertical / moon / clock / hourglass）
+///（用户选定的集合：dots / dots2 / grow / moon / clock / hourglass）
 pub fn anim_pool() -> Vec<(&'static str, &'static str)> {
     vec![
         ("dots", "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
@@ -230,8 +230,10 @@ pub fn anim_pool() -> Vec<(&'static str, &'static str)> {
     ]
 }
 
-/// --spin 指定 > 否则按「本机已有日志数」循环轮换
-/// （每次启动产生一个新日志文件，日志数即启动次数，天然形成循环）
+/// --spin 指定 > 否则按「累计启动序号」循环轮换
+///
+/// 序号存在独立计数文件里，而不是数日志文件：日志只保留最近 `LOG_KEEP` 份，
+/// 用「日志数 % 池长」在第 `LOG_KEEP + 1` 次启动起会永久停在同一个动画上。
 pub fn pick_anim(forced: Option<&str>) -> (usize, &'static str, &'static str) {
     let list = anim_pool();
 
@@ -246,24 +248,35 @@ pub fn pick_anim(forced: Option<&str>) -> (usize, &'static str, &'static str) {
         );
     }
 
-    let runs = existing_run_count();
-    let i = runs % list.len();
+    let i = next_anim_seq(list.len());
     (i, list[i].0, list[i].1)
 }
 
-fn existing_run_count() -> usize {
-    fs::read_dir(log_dir())
-        .map(|it| {
-            it.filter_map(|e| e.ok())
-                .filter(|e| {
-                    e.file_name()
-                        .to_str()
-                        .map(|n| n.starts_with(LOG_PREFIX) && n.ends_with(".log"))
-                        .unwrap_or(false)
-                })
-                .count()
-        })
+/// 轮换计数文件（与 logs/ 同级，随状态一起留在 LOCALAPPDATA）
+fn anim_seq_path() -> PathBuf {
+    log_dir().with_file_name("anim.seq")
+}
+
+/// 读取并递增轮换序号；读写失败时退回 0（最多重复一个动画，不影响启动）。
+///
+/// 只存一个字节（当前池下标）: 避免为 `parse` / `to_string` 拉进数字解析与格式化代码；
+/// 用 `File` 单字节读写而复用日志器的 IO 路径（`fs::read` 会引入整套 read_to_end）。
+fn next_anim_seq(len: usize) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    let path = anim_seq_path();
+    let mut byte = [0u8; 1];
+    let seq = File::open(&path)
+        .and_then(|mut f| f.read_exact(&mut byte))
+        .ok()
+        .map(|_| byte[0] as usize)
         .unwrap_or(0)
+        % len;
+    if let Ok(mut f) = File::create(&path) {
+        let _ = f.write_all(&[((seq + 1) % len) as u8]);
+    }
+    seq
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -274,6 +287,84 @@ struct Notify {
     mp: Option<MultiProgress>,
     plain_text: bool,
     quiet: bool,
+}
+
+/// `--force-tty` 用的假终端。
+///
+/// indicatif 会在两处检查 `is_term()`，非终端时**整块渲染静默丢弃**（连 println 都不出），
+/// 单纯置一个 `force_tty = true` 并不会真的画出动画。这里固定报告「是终端」，
+/// 把帧原样写到 stdout，供无 TTY 环境（CI、重定向、抓帧）验证动画与排版。
+#[derive(Debug)]
+struct ForcedTerm;
+
+/// 强制终端：不做缓冲，逐帧直写 stdout（抓帧时顺序即可读）。
+/// 十进制手动拼，避免每帧一次 `format!` 分配（发布版体积敏感）。
+fn forced_csi(n: usize, final_byte: u8) -> io::Result<()> {
+    let mut digits = [0u8; 20];
+    let mut i = digits.len();
+    let mut v = n;
+    loop {
+        i -= 1;
+        digits[i] = b'0' + (v % 10) as u8;
+        v /= 10;
+        if v == 0 {
+            break;
+        }
+    }
+    let mut out = io::stdout().lock();
+    out.write_all(b"\x1b[")?;
+    out.write_all(&digits[i..])?;
+    out.write_all(&[final_byte])?;
+    out.flush()
+}
+
+impl TermLike for ForcedTerm {
+    fn width(&self) -> u16 {
+        100
+    }
+
+    fn height(&self) -> u16 {
+        30
+    }
+
+    fn move_cursor_up(&self, n: usize) -> io::Result<()> {
+        forced_csi(n, b'A')
+    }
+
+    fn move_cursor_down(&self, n: usize) -> io::Result<()> {
+        forced_csi(n, b'B')
+    }
+
+    fn move_cursor_right(&self, n: usize) -> io::Result<()> {
+        forced_csi(n, b'C')
+    }
+
+    fn move_cursor_left(&self, n: usize) -> io::Result<()> {
+        forced_csi(n, b'D')
+    }
+
+    fn write_line(&self, s: &str) -> io::Result<()> {
+        let mut out = io::stdout().lock();
+        out.write_all(s.as_bytes())?;
+        out.write_all(b"\n")?;
+        out.flush()
+    }
+
+    fn write_str(&self, s: &str) -> io::Result<()> {
+        let mut out = io::stdout().lock();
+        out.write_all(s.as_bytes())?;
+        out.flush()
+    }
+
+    fn clear_line(&self) -> io::Result<()> {
+        let mut out = io::stdout().lock();
+        out.write_all(b"\r\x1b[2K")?;
+        out.flush()
+    }
+
+    fn flush(&self) -> io::Result<()> {
+        io::stdout().flush()
+    }
 }
 
 static NOTIFY: OnceLock<Notify> = OnceLock::new();
@@ -372,6 +463,8 @@ impl Ui {
             Mode::Normal => {
                 let tty = force_tty || Term::stdout().is_term();
                 if !tty {
+                    log("显示层：非交互终端（stdout 非终端）→ 纯文字，不渲染动画；--force-tty 可强制动画渲染");
+                    println!("  ℹ 非交互终端：动画渲染已关闭（在终端窗口直接运行，或加 --force-tty 可看到动画）");
                     let _ = NOTIFY.set(Notify {
                         mp: None,
                         plain_text: true,
@@ -407,7 +500,15 @@ impl Ui {
                     display_label(display),
                     "A|B|C"
                 ));
-                let mp = MultiProgress::new();
+                // 画到哪，就以哪判断终端：判定读的是 stdout，渲染也必须落在 stdout。
+                // indicatif 默认画 stderr，一旦 stderr 被重定向，draw target 会静默隐藏，
+                // 出现「判定说是终端，屏幕上一个字都没有」的情况（v1.1.3 之前的事故）。
+                let target = if force_tty {
+                    ProgressDrawTarget::term_like_with_hz(Box::new(ForcedTerm), 20)
+                } else {
+                    ProgressDrawTarget::stdout()
+                };
+                let mp = MultiProgress::with_draw_target(target);
 
                 // 底部整体进度条：整体是第一个加入的 bar（占 index 0），
                 // 后续步骤行通过 insert(idx-1) 插到它上方 → 整体永远钉在底部

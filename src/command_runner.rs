@@ -215,6 +215,80 @@ pub fn probe_http(host: &str, port: u16) -> bool {
     }
 }
 
+/// 端口上到底跑的是什么
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WebProbe {
+    /// 端口没人应答，或应答不是 HTTP
+    Down,
+    /// 是 pi-web：HTTP 就绪，且响应带 pi-web 自身标识
+    Up,
+    /// 端口上有别的 HTTP 服务（能应答，但不像 pi-web）
+    Foreign,
+}
+
+/// 身份探测：任何本地 Web 服务都能让 `probe_http` 的「有 HTTP 回应」通过，
+/// 只有这里能区分「pi-web 已在运行」和「端口被别的服务占用」。
+///
+/// 标识取 pi-web 首页的 `<title>Pi Web</title>`（版本间稳定），
+/// 另兼容 `X-Powered-By: pi-web` 之类的显式声明。
+pub fn probe_pi_web(host: &str, port: u16) -> WebProbe {
+    let text = match fetch_response_head(host, port, 16 * 1024) {
+        Some(t) if t.starts_with("HTTP/") => t,
+        _ => return WebProbe::Down,
+    };
+    if looks_like_pi_web(&text) {
+        WebProbe::Up
+    } else {
+        WebProbe::Foreign
+    }
+}
+
+/// 读取 HTTP 响应开头（状态行 + 头 + 页面开头），最多 `limit` 字节。
+/// 只用于身份判定，失败一律当作「没有回应」。
+fn fetch_response_head(host: &str, port: u16, limit: usize) -> Option<String> {
+    let addr = (host, port).to_socket_addrs().ok()?.next()?;
+    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(500)).ok()?;
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
+
+    let request = format!(
+        "GET / HTTP/1.0\r\nHost: {}\r\nConnection: close\r\n\r\n",
+        host
+    );
+    stream.write_all(request.as_bytes()).ok()?;
+
+    let mut buf: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 2048];
+    while buf.len() < limit {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                let take = n.min(limit - buf.len());
+                buf.extend_from_slice(&chunk[..take]);
+                if take < n {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    if buf.is_empty() {
+        None
+    } else {
+        Some(String::from_utf8_lossy(&buf).into_owned())
+    }
+}
+
+/// 响应是否来自 pi-web（大小写与标签内空白不敏感）
+fn looks_like_pi_web(response: &str) -> bool {
+    let lower = response.to_ascii_lowercase();
+    let squeezed: String = lower.split_whitespace().collect::<Vec<_>>().join(" ");
+    squeezed.contains("<title>pi web</title>")
+        || lower.contains("x-powered-by: pi-web")
+        || lower.contains("x-powered-by:pi-web")
+}
+
 /// 等待服务真正就绪：既确认进程没有退出，也确认 HTTP 端口能回应。
 /// progress：可选回调，按等待进度触发（0..1），供确定进度条爬升使用。
 pub fn wait_ready<P: FnMut(f64)>(
@@ -247,8 +321,7 @@ pub fn wait_ready<P: FnMut(f64)>(
     }
 }
 
-/// 按 PID 终止进程及其整棵进程树。
-///
+/// 按 PID 终止进程及其整棵进程树。///
 /// 后台 pi-web 经 `cmd /C` 启动，真正的服务是其子进程（node），
 /// 只 kill 父进程会留下孤儿进程占用端口，因此需要连同子进程一起终止。
 pub fn terminate_pid(pid: u32) {
@@ -275,4 +348,56 @@ pub fn terminate_pid(pid: u32) {
 pub fn terminate_background(child: &mut Child) {
     terminate_pid(child.id());
     let _ = child.wait();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpListener;
+
+    /// 起一个只应答一次的假 HTTP 服务，返回端口
+    fn serve_once(body: &'static str) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("绑定随机端口");
+        let port = listener.local_addr().expect("读取端口").port();
+        thread::spawn(move || {
+            if let Ok((mut s, _)) = listener.accept() {
+                let mut buf = [0u8; 512];
+                let _ = s.read(&mut buf);
+                let resp = format!("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n{}", body);
+                let _ = s.write_all(resp.as_bytes());
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn probe_recognizes_pi_web() {
+        let port = serve_once("<html><head><title>Pi Web</title></head></html>");
+        assert_eq!(probe_pi_web("127.0.0.1", port), WebProbe::Up);
+    }
+
+    #[test]
+    fn probe_rejects_other_http_service() {
+        let port = serve_once("<html><head><title>Some Other App</title></head></html>");
+        assert_eq!(probe_pi_web("127.0.0.1", port), WebProbe::Foreign);
+    }
+
+    #[test]
+    fn probe_reports_down_when_nothing_listens() {
+        // 绑定后立即释放，得到一个当前空闲的端口
+        let port = {
+            let l = TcpListener::bind("127.0.0.1:0").expect("绑定随机端口");
+            l.local_addr().expect("读取端口").port()
+        };
+        assert_eq!(probe_pi_web("127.0.0.1", port), WebProbe::Down);
+    }
+
+    #[test]
+    fn marker_matching_is_case_insensitive() {
+        assert!(looks_like_pi_web("<title>Pi Web</title>"));
+        assert!(looks_like_pi_web("<TITLE>PI WEB</TITLE>"));
+        assert!(looks_like_pi_web("X-Powered-By: pi-web"));
+        assert!(!looks_like_pi_web("<title>Grafana</title>"));
+        assert!(!looks_like_pi_web("HTTP/1.0 404 Not Found"));
+    }
 }

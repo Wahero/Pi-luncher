@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pi Agent 批量自动化启动工具 - Rust 实现 v1.1.3</title>
+<title>Pi Agent 批量自动化启动工具 - Rust 实现 v1.1.4</title>
 <style>
   :root {
     --bg: #0d1117;
@@ -489,7 +489,7 @@
         支持安静模式（自动化 / 计划任务）与全程文字日志。
       </p>
       <div class="tags">
-        <span>v1.1.3</span>
+        <span>v1.1.4</span>
         <span>Rust 2021</span>
         <span>indicatif 0.17</span>
         <span>脱离式后台</span>
@@ -577,7 +577,7 @@
       </div>
 <pre><code>[package]
 name = "pi-launcher"
-version = "1.1.3"
+version = "1.1.4"
 edition = "2021"
 description = "Pi Agent 批量自动化启动工具"
 
@@ -824,6 +824,80 @@ pub fn probe_http(host: &amp;str, port: u16) -&gt; bool {
     }
 }
 
+/// 端口上到底跑的是什么
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WebProbe {
+    /// 端口没人应答，或应答不是 HTTP
+    Down,
+    /// 是 pi-web：HTTP 就绪，且响应带 pi-web 自身标识
+    Up,
+    /// 端口上有别的 HTTP 服务（能应答，但不像 pi-web）
+    Foreign,
+}
+
+/// 身份探测：任何本地 Web 服务都能让 `probe_http` 的「有 HTTP 回应」通过，
+/// 只有这里能区分「pi-web 已在运行」和「端口被别的服务占用」。
+///
+/// 标识取 pi-web 首页的 `&lt;title&gt;Pi Web&lt;/title&gt;`（版本间稳定），
+/// 另兼容 `X-Powered-By: pi-web` 之类的显式声明。
+pub fn probe_pi_web(host: &amp;str, port: u16) -&gt; WebProbe {
+    let text = match fetch_response_head(host, port, 16 * 1024) {
+        Some(t) if t.starts_with("HTTP/") =&gt; t,
+        _ =&gt; return WebProbe::Down,
+    };
+    if looks_like_pi_web(&amp;text) {
+        WebProbe::Up
+    } else {
+        WebProbe::Foreign
+    }
+}
+
+/// 读取 HTTP 响应开头（状态行 + 头 + 页面开头），最多 `limit` 字节。
+/// 只用于身份判定，失败一律当作「没有回应」。
+fn fetch_response_head(host: &amp;str, port: u16, limit: usize) -&gt; Option&lt;String&gt; {
+    let addr = (host, port).to_socket_addrs().ok()?.next()?;
+    let mut stream = TcpStream::connect_timeout(&amp;addr, Duration::from_millis(500)).ok()?;
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
+
+    let request = format!(
+        "GET / HTTP/1.0\r\nHost: {}\r\nConnection: close\r\n\r\n",
+        host
+    );
+    stream.write_all(request.as_bytes()).ok()?;
+
+    let mut buf: Vec&lt;u8&gt; = Vec::new();
+    let mut chunk = [0u8; 2048];
+    while buf.len() &lt; limit {
+        match stream.read(&amp;mut chunk) {
+            Ok(0) =&gt; break,
+            Ok(n) =&gt; {
+                let take = n.min(limit - buf.len());
+                buf.extend_from_slice(&amp;chunk[..take]);
+                if take &lt; n {
+                    break;
+                }
+            }
+            Err(_) =&gt; break,
+        }
+    }
+
+    if buf.is_empty() {
+        None
+    } else {
+        Some(String::from_utf8_lossy(&amp;buf).into_owned())
+    }
+}
+
+/// 响应是否来自 pi-web（大小写与标签内空白不敏感）
+fn looks_like_pi_web(response: &amp;str) -&gt; bool {
+    let lower = response.to_ascii_lowercase();
+    let squeezed: String = lower.split_whitespace().collect::&lt;Vec&lt;_&gt;&gt;().join(" ");
+    squeezed.contains("&lt;title&gt;pi web&lt;/title&gt;")
+        || lower.contains("x-powered-by: pi-web")
+        || lower.contains("x-powered-by:pi-web")
+}
+
 /// 等待服务真正就绪：既确认进程没有退出，也确认 HTTP 端口能回应。
 /// progress：可选回调，按等待进度触发（0..1），供确定进度条爬升使用。
 pub fn wait_ready&lt;P: FnMut(f64)&gt;(
@@ -856,8 +930,7 @@ pub fn wait_ready&lt;P: FnMut(f64)&gt;(
     }
 }
 
-/// 按 PID 终止进程及其整棵进程树。
-///
+/// 按 PID 终止进程及其整棵进程树。///
 /// 后台 pi-web 经 `cmd /C` 启动，真正的服务是其子进程（node），
 /// 只 kill 父进程会留下孤儿进程占用端口，因此需要连同子进程一起终止。
 pub fn terminate_pid(pid: u32) {
@@ -885,6 +958,58 @@ pub fn terminate_background(child: &amp;mut Child) {
     terminate_pid(child.id());
     let _ = child.wait();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpListener;
+
+    /// 起一个只应答一次的假 HTTP 服务，返回端口
+    fn serve_once(body: &amp;'static str) -&gt; u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("绑定随机端口");
+        let port = listener.local_addr().expect("读取端口").port();
+        thread::spawn(move || {
+            if let Ok((mut s, _)) = listener.accept() {
+                let mut buf = [0u8; 512];
+                let _ = s.read(&amp;mut buf);
+                let resp = format!("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n{}", body);
+                let _ = s.write_all(resp.as_bytes());
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn probe_recognizes_pi_web() {
+        let port = serve_once("&lt;html&gt;&lt;head&gt;&lt;title&gt;Pi Web&lt;/title&gt;&lt;/head&gt;&lt;/html&gt;");
+        assert_eq!(probe_pi_web("127.0.0.1", port), WebProbe::Up);
+    }
+
+    #[test]
+    fn probe_rejects_other_http_service() {
+        let port = serve_once("&lt;html&gt;&lt;head&gt;&lt;title&gt;Some Other App&lt;/title&gt;&lt;/head&gt;&lt;/html&gt;");
+        assert_eq!(probe_pi_web("127.0.0.1", port), WebProbe::Foreign);
+    }
+
+    #[test]
+    fn probe_reports_down_when_nothing_listens() {
+        // 绑定后立即释放，得到一个当前空闲的端口
+        let port = {
+            let l = TcpListener::bind("127.0.0.1:0").expect("绑定随机端口");
+            l.local_addr().expect("读取端口").port()
+        };
+        assert_eq!(probe_pi_web("127.0.0.1", port), WebProbe::Down);
+    }
+
+    #[test]
+    fn marker_matching_is_case_insensitive() {
+        assert!(looks_like_pi_web("&lt;title&gt;Pi Web&lt;/title&gt;"));
+        assert!(looks_like_pi_web("&lt;TITLE&gt;PI WEB&lt;/TITLE&gt;"));
+        assert!(looks_like_pi_web("X-Powered-By: pi-web"));
+        assert!(!looks_like_pi_web("&lt;title&gt;Grafana&lt;/title&gt;"));
+        assert!(!looks_like_pi_web("HTTP/1.0 404 Not Found"));
+    }
+}
 </code></pre>
     </div>
     </section>
@@ -909,8 +1034,8 @@ pub fn terminate_background(child: &amp;mut Child) {
         <span class="lang">RUST</span>
       </div>
 <pre><code>use crate::command_runner::{
-    build_command, command_exists, probe_http, run_capture, run_checked, spawn_detached,
-    terminate_background, wait_ready, RunResult, StartupOutcome,
+    build_command, command_exists, probe_pi_web, run_capture, run_checked, spawn_detached,
+    terminate_background, wait_ready, RunResult, StartupOutcome, WebProbe,
 };
 use crate::ui::{self, Ui};
 use std::process::Child;
@@ -1020,8 +1145,9 @@ pub fn step_pi_web_upgrade(ui: &amp;mut Ui, host: &amp;str, port: u16) -&gt; Res
     ui.step_start(3, "检查并升级 pi-web", "检查并升级 pi-web", false);
 
     // 运行中的实例会锁定包目录，npm -g 升级必然失败（EBUSY），
-    // 因此先探测：在运行就跳过升级，保留现有版本。
-    if probe_http(host, port) {
+    // 因此先探测：确认是 pi-web 在跑就跳过升级，保留现有版本。
+    // 只认 pi-web 本体（probe_pi_web），端口被别的 HTTP 服务占着不算「已在运行」。
+    if probe_pi_web(host, port) == WebProbe::Up {
         ui.step_ok(&amp;format!(
             "pi-web 正在运行（http://{}:{}），跳过升级",
             host, port
@@ -1140,14 +1266,27 @@ fn run_upgrade_install(ui: &amp;mut Ui) -&gt; Result&lt;(), String&gt; {
 pub fn step_pi_web(ui: &amp;mut Ui, host: &amp;str, port: u16) -&gt; Result&lt;WebStart, String&gt; {
     ui.step_start(4, "启动 pi-web（常驻后台）", "启动 pi-web（后台）", true);
 
-    // 已在运行？直接跳过，避免端口冲突
-    if probe_http(host, port) {
-        let msg = format!(
-            "pi-web 已在运行：http://{}:{}，跳过启动（保留原进程，本次不做崩溃监控）",
-            host, port
-        );
-        ui.step_ok(&amp;msg);
-        return Ok(WebStart::AlreadyRunning);
+    // 已在运行？直接跳过，避免端口冲突。
+    // 这里必须确认「跑的是 pi-web」：端口被别的服务占着时不能当成已就绪，
+    // 否则后面的 Pi CLI 会连到一个完全不相干的服务上。
+    match probe_pi_web(host, port) {
+        WebProbe::Up =&gt; {
+            let msg = format!(
+                "pi-web 已在运行：http://{}:{}，跳过启动（保留原进程，本次不做崩溃监控）",
+                host, port
+            );
+            ui.step_ok(&amp;msg);
+            return Ok(WebStart::AlreadyRunning);
+        }
+        WebProbe::Foreign =&gt; {
+            let msg = format!(
+                "端口 {} 被非 pi-web 的 HTTP 服务占用，无法启动 pi-web；请换端口（PORT 环境变量）或停掉该服务",
+                port
+            );
+            ui.step_fail(&amp;msg);
+            return Err(msg);
+        }
+        WebProbe::Down =&gt; {}
     }
 
     ui.step_message("正在启动 pi-web 服务…");
@@ -1192,12 +1331,24 @@ pub fn step_pi_web(ui: &amp;mut Ui, host: &amp;str, port: u16) -&gt; Result&lt;W
 ///
 /// 注意：`pi` 的 `--mode` 只接受 text / json / rpc，并没有 interactive；
 /// 交互模式是在「stdin/stdout 都是 TTY 且非 --print」时的预设行为，所以直接跑 `pi`。
-pub fn step_pi_cli(ui: &amp;mut Ui) -&gt; Result&lt;(), String&gt; {
+///
+/// 启动前先复核 pi-web 是否真的就绪：步骤 4 可能只是复用了外部实例（AlreadyRunning），
+/// 该实例在本进程等待期间可能已经退出；此时仍然拉起 CLI 只会让用户对着一个连不上的服务操作。
+pub fn step_pi_cli(ui: &amp;mut Ui, host: &amp;str, port: u16) -&gt; Result&lt;(), String&gt; {
     ui.step_start(5, "启动 Pi CLI 交互界面", "Pi CLI", false);
 
     // CLI 是 TUI：先撤掉全部活体渲染并把账目行重放为纯文本——
     // pi 的 inline TUI 与任何还在重绘的 bar 会互相糊画面（v1.1.0 回归事故）
     ui.replay_ledger();
+
+    if probe_pi_web(host, port) != WebProbe::Up {
+        let msg = format!(
+            "pi-web 未就绪（http://{}:{}），已中止启动 Pi CLI",
+            host, port
+        );
+        ui.step_fail(&amp;msg);
+        return Err(msg);
+    }
 
     ui.message("  正在启动 Pi CLI 交互界面…");
     ui.message("  （退出 CLI 不影响已脱离运行的 pi-web）");
@@ -1382,15 +1533,15 @@ mod tests {
 ////////////////////////////////////////////////////////////////////////////////
 
 use console::{style, Term};
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle, TermLike};
 use std::fs::{self, File};
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 use unicode_width::UnicodeWidthStr;
 
-pub const VERSION: &amp;str = "1.1.3";
+pub const VERSION: &amp;str = "1.1.4";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
@@ -1584,10 +1735,10 @@ fn civil_from_days(z: i64) -&gt; (i64, u32, u32) {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 动画池（--quiet 不适用；每次启动按日志数循环轮换）
+// 动画池（--quiet 不适用；每次启动循环轮换）
 // ────────────────────────────────────────────────────────────────
 
-///（用户选定的集合：dots / dots2 / growVertical / moon / clock / hourglass）
+///（用户选定的集合：dots / dots2 / grow / moon / clock / hourglass）
 pub fn anim_pool() -&gt; Vec&lt;(&amp;'static str, &amp;'static str)&gt; {
     vec![
         ("dots", "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
@@ -1599,8 +1750,10 @@ pub fn anim_pool() -&gt; Vec&lt;(&amp;'static str, &amp;'static str)&gt; {
     ]
 }
 
-/// --spin 指定 &gt; 否则按「本机已有日志数」循环轮换
-/// （每次启动产生一个新日志文件，日志数即启动次数，天然形成循环）
+/// --spin 指定 &gt; 否则按「累计启动序号」循环轮换
+///
+/// 序号存在独立计数文件里，而不是数日志文件：日志只保留最近 `LOG_KEEP` 份，
+/// 用「日志数 % 池长」在第 `LOG_KEEP + 1` 次启动起会永久停在同一个动画上。
 pub fn pick_anim(forced: Option&lt;&amp;str&gt;) -&gt; (usize, &amp;'static str, &amp;'static str) {
     let list = anim_pool();
 
@@ -1615,24 +1768,35 @@ pub fn pick_anim(forced: Option&lt;&amp;str&gt;) -&gt; (usize, &amp;'static str,
         );
     }
 
-    let runs = existing_run_count();
-    let i = runs % list.len();
+    let i = next_anim_seq(list.len());
     (i, list[i].0, list[i].1)
 }
 
-fn existing_run_count() -&gt; usize {
-    fs::read_dir(log_dir())
-        .map(|it| {
-            it.filter_map(|e| e.ok())
-                .filter(|e| {
-                    e.file_name()
-                        .to_str()
-                        .map(|n| n.starts_with(LOG_PREFIX) &amp;&amp; n.ends_with(".log"))
-                        .unwrap_or(false)
-                })
-                .count()
-        })
+/// 轮换计数文件（与 logs/ 同级，随状态一起留在 LOCALAPPDATA）
+fn anim_seq_path() -&gt; PathBuf {
+    log_dir().with_file_name("anim.seq")
+}
+
+/// 读取并递增轮换序号；读写失败时退回 0（最多重复一个动画，不影响启动）。
+///
+/// 只存一个字节（当前池下标）: 避免为 `parse` / `to_string` 拉进数字解析与格式化代码；
+/// 用 `File` 单字节读写而复用日志器的 IO 路径（`fs::read` 会引入整套 read_to_end）。
+fn next_anim_seq(len: usize) -&gt; usize {
+    if len == 0 {
+        return 0;
+    }
+    let path = anim_seq_path();
+    let mut byte = [0u8; 1];
+    let seq = File::open(&amp;path)
+        .and_then(|mut f| f.read_exact(&amp;mut byte))
+        .ok()
+        .map(|_| byte[0] as usize)
         .unwrap_or(0)
+        % len;
+    if let Ok(mut f) = File::create(&amp;path) {
+        let _ = f.write_all(&amp;[((seq + 1) % len) as u8]);
+    }
+    seq
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1643,6 +1807,84 @@ struct Notify {
     mp: Option&lt;MultiProgress&gt;,
     plain_text: bool,
     quiet: bool,
+}
+
+/// `--force-tty` 用的假终端。
+///
+/// indicatif 会在两处检查 `is_term()`，非终端时**整块渲染静默丢弃**（连 println 都不出），
+/// 单纯置一个 `force_tty = true` 并不会真的画出动画。这里固定报告「是终端」，
+/// 把帧原样写到 stdout，供无 TTY 环境（CI、重定向、抓帧）验证动画与排版。
+#[derive(Debug)]
+struct ForcedTerm;
+
+/// 强制终端：不做缓冲，逐帧直写 stdout（抓帧时顺序即可读）。
+/// 十进制手动拼，避免每帧一次 `format!` 分配（发布版体积敏感）。
+fn forced_csi(n: usize, final_byte: u8) -&gt; io::Result&lt;()&gt; {
+    let mut digits = [0u8; 20];
+    let mut i = digits.len();
+    let mut v = n;
+    loop {
+        i -= 1;
+        digits[i] = b'0' + (v % 10) as u8;
+        v /= 10;
+        if v == 0 {
+            break;
+        }
+    }
+    let mut out = io::stdout().lock();
+    out.write_all(b"\x1b[")?;
+    out.write_all(&amp;digits[i..])?;
+    out.write_all(&amp;[final_byte])?;
+    out.flush()
+}
+
+impl TermLike for ForcedTerm {
+    fn width(&amp;self) -&gt; u16 {
+        100
+    }
+
+    fn height(&amp;self) -&gt; u16 {
+        30
+    }
+
+    fn move_cursor_up(&amp;self, n: usize) -&gt; io::Result&lt;()&gt; {
+        forced_csi(n, b'A')
+    }
+
+    fn move_cursor_down(&amp;self, n: usize) -&gt; io::Result&lt;()&gt; {
+        forced_csi(n, b'B')
+    }
+
+    fn move_cursor_right(&amp;self, n: usize) -&gt; io::Result&lt;()&gt; {
+        forced_csi(n, b'C')
+    }
+
+    fn move_cursor_left(&amp;self, n: usize) -&gt; io::Result&lt;()&gt; {
+        forced_csi(n, b'D')
+    }
+
+    fn write_line(&amp;self, s: &amp;str) -&gt; io::Result&lt;()&gt; {
+        let mut out = io::stdout().lock();
+        out.write_all(s.as_bytes())?;
+        out.write_all(b"\n")?;
+        out.flush()
+    }
+
+    fn write_str(&amp;self, s: &amp;str) -&gt; io::Result&lt;()&gt; {
+        let mut out = io::stdout().lock();
+        out.write_all(s.as_bytes())?;
+        out.flush()
+    }
+
+    fn clear_line(&amp;self) -&gt; io::Result&lt;()&gt; {
+        let mut out = io::stdout().lock();
+        out.write_all(b"\r\x1b[2K")?;
+        out.flush()
+    }
+
+    fn flush(&amp;self) -&gt; io::Result&lt;()&gt; {
+        io::stdout().flush()
+    }
 }
 
 static NOTIFY: OnceLock&lt;Notify&gt; = OnceLock::new();
@@ -1741,6 +1983,8 @@ impl Ui {
             Mode::Normal =&gt; {
                 let tty = force_tty || Term::stdout().is_term();
                 if !tty {
+                    log("显示层：非交互终端（stdout 非终端）→ 纯文字，不渲染动画；--force-tty 可强制动画渲染");
+                    println!("  ℹ 非交互终端：动画渲染已关闭（在终端窗口直接运行，或加 --force-tty 可看到动画）");
                     let _ = NOTIFY.set(Notify {
                         mp: None,
                         plain_text: true,
@@ -1776,7 +2020,15 @@ impl Ui {
                     display_label(display),
                     "A|B|C"
                 ));
-                let mp = MultiProgress::new();
+                // 画到哪，就以哪判断终端：判定读的是 stdout，渲染也必须落在 stdout。
+                // indicatif 默认画 stderr，一旦 stderr 被重定向，draw target 会静默隐藏，
+                // 出现「判定说是终端，屏幕上一个字都没有」的情况（v1.1.3 之前的事故）。
+                let target = if force_tty {
+                    ProgressDrawTarget::term_like_with_hz(Box::new(ForcedTerm), 20)
+                } else {
+                    ProgressDrawTarget::stdout()
+                };
+                let mp = MultiProgress::with_draw_target(target);
 
                 // 底部整体进度条：整体是第一个加入的 bar（占 index 0），
                 // 后续步骤行通过 insert(idx-1) 插到它上方 → 整体永远钉在底部
@@ -2435,7 +2687,7 @@ fn run_normal(args: &amp;Args, host: String, port: u16) -&gt; i32 {
         Ok(WebStart::AlreadyRunning) =&gt; {}
     }
 
-    if step_pi_cli(&amp;mut ui).is_err() {
+    if step_pi_cli(&amp;mut ui, &amp;host, port).is_err() {
         wait_and_exit(5);
     }
 
@@ -2778,7 +3030,7 @@ panic = "abort"</code></pre>
     </section>
 
     <footer>
-      Pi Agent 批量自动化启动工具 · Rust 实现文档 · v1.1.3
+      Pi Agent 批量自动化启动工具 · Rust 实现文档 · v1.1.4
     </footer>
 
   </main>

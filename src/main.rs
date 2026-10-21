@@ -224,7 +224,7 @@ fn run_normal(args: &Args, host: String, port: u16) -> i32 {
         Ok(WebStart::AlreadyRunning) => {}
     }
 
-    if step_pi_cli(&mut ui).is_err() {
+    if step_pi_cli(&mut ui, &host, port).is_err() {
         wait_and_exit(5);
     }
 
