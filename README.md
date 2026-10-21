@@ -80,6 +80,18 @@ cargo run --release
 
 收尾时整体条撤场，账目行保持为普通行，随后是日志路径与「✓ 全部步骤完成」；每一行的右侧动作（转圈 / 进度条 + eta、当前操作名）都在固定位置实时刷新。等待 `pi-web` HTTP 就绪时展示真实比例进度条（60 秒时间轴）。
 
+### 6 组转圈字形
+
+`--spin <name>` 可固定字形，默认按启动序号在 6 组间轮换。下面是同一时刻（4 步全过、整体进度 80%）的六组画面：
+
+| `dots` | `dots2` |
+|:---:|:---:|
+| <img src="docs/images/anim-dots.png" width="420"> | <img src="docs/images/anim-dots2.png" width="420"> |
+| `grow` | `moon` |
+| <img src="docs/images/anim-grow.png" width="420"> | <img src="docs/images/anim-moon.png" width="420"> |
+| `clock` | `hourglass` |
+| <img src="docs/images/anim-clock.png" width="420"> | <img src="docs/images/anim-hourglass.png" width="420"> |
+
 另两档样式（`--display b` / `--display c`）：**B · 轻修** 保留分栏仪表节奏、开场为圆角细框；**C · 极简** 无框无分隔线的一行短流。quiet 与非终端自动退化为纯文字样式，不受该参数影响。
 
 停止后台服务：
