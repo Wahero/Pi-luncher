@@ -84,7 +84,9 @@
 ### 7. 发布
 
 ```
-COMMIT_PLACEHOLDER
+commit 5c698e2  v1.1.4：修复动画不显示，补上 pi-web 身份校验与启动前探活
+tag    v1.1.4   （annotated，已推送）
+main → origin/main 同步
 ```
 
 改动文件：`src/ui.rs`、`src/steps.rs`、`src/command_runner.rs`、`src/main.rs`、`Cargo.toml`、`Cargo.lock`、
