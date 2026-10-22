@@ -5,6 +5,48 @@
 
 ---
 
+## 2026-10-22 · v1.1.5 沙漏转圈「看着静止」修复
+
+### 动因
+
+用户桌面双击 exe 后反馈：特效图像**看得到，但不会转换，变成静态的**；追问后确认「只有某一步不动」。查当日日志（`%LOCALAPPDATA%\pi-launcher\logs\`，17:12 那次，`动画主题：hourglass`）：第 2 步 `pi update --all` 跑了 70.8 s，是整场唯一能盯住看的转圈步骤 —— 也就是沙漏那一组。
+
+### 根因
+
+`anim_pool()` 里 hourglass 是 `"\u{23F3}\u{231B}"`（⏳⌛）两个字符，而 indicatif `ProgressStyle::tick_chars` 的语义是**最后一个字符留作「完成态」**，参与转动的帧数 = 字符数 − 1：
+
+```rust
+// indicatif-0.17.11/src/style.rs
+pub fn get_tick_str(&self, idx: u64) -> &str {
+    &self.tick_strings[(idx as usize) % (self.tick_strings.len() - 1)]
+}
+```
+
+于是 2 个字符只剩 **1 个转动帧**，沙漏永远停在 ⏳；另外五组有 6–12 个字符，转动帧 ≥5，所以看起来正常。
+
+### 修复
+
+| 项 | 内容 |
+|---|---|
+| 字形 | `("\u{23F3}\u{231B}\u{23F3}")` → 转动帧 `⏳` / `⌛` 两帧交替（完成态用 `⏳`），并加注释说明 indicatif 的末字符语义 |
+| 回归测试 | `anim_pool_has_two_spinning_frames()`：遍历 `anim_pool()`，要求每组字符数 ≥3（即转动帧 ≥2），以后再加动画不会重犯 |
+| 版本 | `Cargo.toml` 与 `ui::VERSION` → `1.1.5` |
+| 文档 | README（ASCII 示例版本号、体积说明、近期更新）、AGENTS.md 版本/体积基线、`tools/gen-docs.ps1` 版本串并重新生成 `docs/Pi-Luncher.html`、README 6 张动画截图全部按 v1.1.5 banner 重抓 |
+
+### 验证
+
+- **真终端取证**（`AttachConsole` + `ReadConsoleOutputCharacter` 读传统主控台屏幕缓冲区，`conhost.exe cmd /c` 启动，`--spin hourglass`，70 ms 采样）：修复前 12 次采样全是 `⏳`；修复后交替出现 `⏳⏳⌛⌛⏳⏳⌛⌛`。
+- `cargo test` 13 passed（含新增回归测试）；`cargo build --release` 后 `target/release/pi-launcher.exe` 仍为 **413,184 字节**（无体积回退）。
+- 六张 `docs/images/anim-*.png` 已按 v1.1.5 重出（banner 显示 v1.1.5）。
+- 测试用假 `pi-web`（39991）进程已清理，端口释放；真实 pi-web（30141）未受影响。
+
+### 遗留
+
+- 两帧交替在 90 ms 节奏下是「闪烁式」转动，观感仍弱于 dots（10 帧）。Unicode 只有 `⏳`/`⌛` 两个沙漏字形，除非改成非沙漏字形，否则无法更多帧。
+- 其他五组的最后一个字符同样只作为完成态、不会在转动中出现（如 `clock` 的 `🕛`、`moon` 的 `🌘`），属预期行为，不修。
+
+---
+
 ## 2026-10-21 · README 补 6 组动画截图
 
 ### 动因

@@ -21,7 +21,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 use unicode_width::UnicodeWidthStr;
 
-pub const VERSION: &str = "1.1.4";
+pub const VERSION: &str = "1.1.5";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
@@ -226,7 +226,9 @@ pub fn anim_pool() -> Vec<(&'static str, &'static str)> {
         ("grow", "▁▃▄▅▆▇▆▅▄▃"),
         ("moon", "\u{1F311}\u{1F312}\u{1F313}\u{1F314}\u{1F315}\u{1F316}\u{1F317}\u{1F318}"),
         ("clock", "\u{1F550}\u{1F551}\u{1F552}\u{1F553}\u{1F554}\u{1F555}\u{1F556}\u{1F557}\u{1F558}\u{1F559}\u{1F55A}\u{1F55B}"),
-        ("hourglass", "\u{23F3}\u{231B}"),
+        // 末尾多补一个帧：indicatif 把最后一个字符当「完成态」，只给 2 个字符时
+        // 实际只有 1 个转动帧 → 沙漏看起来完全静止（v1.1.4 的 bug）。
+        ("hourglass", "\u{23F3}\u{231B}\u{23F3}"),
     ]
 }
 
@@ -876,6 +878,17 @@ mod tests {
         // 超宽不额外截断：交给 wide_msg / 终端负责
         let wide = pad_width("pi-web1234567890123456", 20);
         assert_eq!(UnicodeWidthStr::width(wide.as_str()), 22);
+    }
+
+    #[test]
+    fn anim_pool_has_two_spinning_frames() {
+        // indicatif 的 tick_chars 把最后一个字符留作「完成态」，
+        // 实际参与转动的帧数 = 字符数 - 1。少于 2 帧时转圈看起来是静止的
+        // （v1.1.4 的 hourglass 只有 ⏳⌛ 两个字符 → 永远停在 ⏳）。
+        for (name, chars) in anim_pool() {
+            let n = chars.chars().count();
+            assert!(n >= 3, "动画 {name} 只有 {n} 个字符，转动帧不足 2 个");
+        }
     }
 
     #[test]

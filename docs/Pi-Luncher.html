@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pi Agent 批量自动化启动工具 - Rust 实现 v1.1.4</title>
+<title>Pi Agent 批量自动化启动工具 - Rust 实现 v1.1.5</title>
 <style>
   :root {
     --bg: #0d1117;
@@ -489,7 +489,7 @@
         支持安静模式（自动化 / 计划任务）与全程文字日志。
       </p>
       <div class="tags">
-        <span>v1.1.4</span>
+        <span>v1.1.5</span>
         <span>Rust 2021</span>
         <span>indicatif 0.17</span>
         <span>脱离式后台</span>
@@ -577,7 +577,7 @@
       </div>
 <pre><code>[package]
 name = "pi-launcher"
-version = "1.1.4"
+version = "1.1.5"
 edition = "2021"
 description = "Pi Agent 批量自动化启动工具"
 
@@ -1541,7 +1541,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 use unicode_width::UnicodeWidthStr;
 
-pub const VERSION: &amp;str = "1.1.4";
+pub const VERSION: &amp;str = "1.1.5";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
@@ -1746,7 +1746,9 @@ pub fn anim_pool() -&gt; Vec&lt;(&amp;'static str, &amp;'static str)&gt; {
         ("grow", "▁▃▄▅▆▇▆▅▄▃"),
         ("moon", "\u{1F311}\u{1F312}\u{1F313}\u{1F314}\u{1F315}\u{1F316}\u{1F317}\u{1F318}"),
         ("clock", "\u{1F550}\u{1F551}\u{1F552}\u{1F553}\u{1F554}\u{1F555}\u{1F556}\u{1F557}\u{1F558}\u{1F559}\u{1F55A}\u{1F55B}"),
-        ("hourglass", "\u{23F3}\u{231B}"),
+        // 末尾多补一个帧：indicatif 把最后一个字符当「完成态」，只给 2 个字符时
+        // 实际只有 1 个转动帧 → 沙漏看起来完全静止（v1.1.4 的 bug）。
+        ("hourglass", "\u{23F3}\u{231B}\u{23F3}"),
     ]
 }
 
@@ -2399,6 +2401,17 @@ mod tests {
     }
 
     #[test]
+    fn anim_pool_has_two_spinning_frames() {
+        // indicatif 的 tick_chars 把最后一个字符留作「完成态」，
+        // 实际参与转动的帧数 = 字符数 - 1。少于 2 帧时转圈看起来是静止的
+        // （v1.1.4 的 hourglass 只有 ⏳⌛ 两个字符 → 永远停在 ⏳）。
+        for (name, chars) in anim_pool() {
+            let n = chars.chars().count();
+            assert!(n &gt;= 3, "动画 {name} 只有 {n} 个字符，转动帧不足 2 个");
+        }
+    }
+
+    #[test]
     fn all_row_templates_parse() {
         // 六张步骤行模板 + 三张整体条模板必须全部合法，避免运行期 panic
         for d in [Display::Ledger, Display::Lite, Display::Min] {
@@ -3030,7 +3043,7 @@ panic = "abort"</code></pre>
     </section>
 
     <footer>
-      Pi Agent 批量自动化启动工具 · Rust 实现文档 · v1.1.4
+      Pi Agent 批量自动化启动工具 · Rust 实现文档 · v1.1.5
     </footer>
 
   </main>

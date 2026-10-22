@@ -1,6 +1,6 @@
 [package]
 name = "pi-launcher"
-version = "1.1.4"
+version = "1.1.5"
 edition = "2021"
 description = "Pi Agent 批量自动化启动工具"
 
