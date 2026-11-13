@@ -1,4 +1,4 @@
-﻿# 一次性脚本：用当前源码重新生成 docs/Pi-Luncher.html（v1.1.5 同步版）。
+﻿# 一次性脚本：用当前源码重新生成 docs/Pi-Luncher.html（v1.1.6 同步版）。
 # 旧文档的手写高亮无法逐段维护，改为：沿用旧 CSS/外壳 + 源码纯文本转义注入。
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -43,7 +43,7 @@ $html = @"
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pi Agent 批量自动化启动工具 - Rust 实现 v1.1.5</title>
+<title>Pi Agent 批量自动化启动工具 - Rust 实现 v1.1.6</title>
 $css
 </head>
 <body>
@@ -82,7 +82,7 @@ $css
         支持安静模式（自动化 / 计划任务）与全程文字日志。
       </p>
       <div class="tags">
-        <span>v1.1.5</span>
+        <span>v1.1.6</span>
         <span>Rust 2021</span>
         <span>indicatif 0.17</span>
         <span>脱离式后台</span>
@@ -97,7 +97,7 @@ $css
       <h2><span class="num">1</span>项目简介</h2>
 
       <ul class="steps-list">
-        <li><strong>环境预检</strong> — 确认 <code>pi</code> / <code>pi-web</code> / <code>npm</code> 在 PATH 中可执行</li>
+        <li><strong>环境预检</strong> — 确认 <code>pi</code> / <code>pi-web</code> / <code>npm</code> 在 PATH 中可执行；<code>pi-web</code> 缺失时先尝试自动修复 npm 全局 shim</li>
         <li><strong>pi update --all</strong> — 更新 Pi 主体与所有扩展包</li>
         <li><strong>检查并升级 pi-web</strong> — <code>npm view</code> 对比 registry 最新版本，需要时 <code>npm install -g @agegr/pi-web@latest</code></li>
         <li><strong>启动 pi-web</strong> — detached 常驻后台 + HTTP 就绪探测（60 秒上限，真实比例进度条）</li>
@@ -180,7 +180,7 @@ $css
       <table>
         <thead><tr><th>步骤</th><th>内容</th><th>关键点</th></tr></thead>
         <tbody>
-          <tr><td>1 预检</td><td><code>pi</code> / <code>pi-web</code> / <code>npm</code> 逐个查</td><td>缺命令直接失败（退出码 1）并提示安装命令</td></tr>
+          <tr><td>1 预检</td><td><code>pi</code> / <code>pi-web</code> / <code>npm</code> 逐个查</td><td><code>pi-web</code> 缺失先自动修复（复位 npm 残留 shim / 补写 <code>pi-web.cmd</code> / 重装包）；仍缺才失败（退出码 1）并按命令给出对应安装指引</td></tr>
           <tr><td>2 更新</td><td><code>pi update --all</code></td><td>失败打印 stderr 摘要（退出码 2）</td></tr>
           <tr><td>3 升级检查</td><td><code>npm view</code> vs <code>npm ls -g</code></td><td>本地较旧才升级；pi-web 运行中先跳过（保护文件锁）；EBUSY 文件锁警告后按现版继续（退出码 3 仅真正的升级失败）</td></tr>
           <tr><td>4 启动 pi-web</td><td>detached spawn + HTTP 就绪探测</td><td>已在运行则跳过（保留原进程，不做监控）；提前退出 / 超时分别处理（退出码 4）</td></tr>
@@ -279,10 +279,12 @@ $css
       <table>
         <thead><tr><th>场景</th><th>处理</th></tr></thead>
         <tbody>
-          <tr><td>命令缺失（预检）</td><td>失败退出；日志含安装命令提示</td></tr>
+          <tr><td>命令缺失（预检）</td><td><code>pi-web</code> 先尝试自动修复；仍缺才失败退出，并按缺失命令给出对应安装命令（<code>pi</code> / <code>pi-web</code> / <code>npm</code> 各自不同）</td></tr>
+          <tr><td><code>pi-web</code> 命令消失（升级被打断）</td><td>npm 换 shim 时先把旧 shim 改名成 <code>.pi-web-XXX</code> / <code>.pi-web.cmd-XXX</code> / <code>.pi-web.ps1-XXX</code> 备份，中途被杀会留下备份而缺正式名：launcher 启动时自动复位；包本体在但 shim 全无时直接补写 <code>pi-web.cmd</code>；包本体缺失才 <code>npm install -g @agegr/pi-web@latest</code> 重装</td></tr>
           <tr><td><code>pi update</code> 失败</td><td>stderr 摘要进日志，退出码 2</td></tr>
           <tr><td>pi-web 正在运行 + registry 有新版本</td><td>跳过升级（进程锁定文件），按现版继续；提示 <code>pi-web stop</code> 后重跑 launcher</td></tr>
           <tr><td>升级遇 EBUSY / 文件锁</td><td>警告但不中止启动，按现版继续（真正的升级失败才用退出码 3）</td></tr>
+          <tr><td>升级被 Ctrl+C / 关窗打断</td><td>不直接中止：先尝试修复 shim，恢复成功则按现版继续启动，恢复失败才退出码 3 并给出安装命令</td></tr>
           <tr><td>pi-web 启动失败 / 超时</td><td>终止残留子进程；退出码 4</td></tr>
           <tr><td>pi-web 运行中崩溃</td><td>supervisor 自动重启（最多 3 次），HTTP 无响应每 ~10 秒告警</td></tr>
           <tr><td>Ctrl+C</td><td>launcher 退出（码 130）；detached 的 pi-web 继续运行</td></tr>
@@ -355,7 +357,7 @@ panic = "abort"</code></pre>
     </section>
 
     <footer>
-      Pi Agent 批量自动化启动工具 · Rust 实现文档 · v1.1.5
+      Pi Agent 批量自动化启动工具 · Rust 实现文档 · v1.1.6
     </footer>
 
   </main>

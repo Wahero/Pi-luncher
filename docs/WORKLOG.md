@@ -5,6 +5,48 @@
 
 ---
 
+## 2026-11-13 · v1.1.6 pi-web 命令「凭空消失」自救（npm 换 shim 被中断）
+
+### 动因
+
+用户桌面双击 `pi-launcher.exe`，STEP 1 直接失败：`未找到命令 pi-web`。而此前同一天 14:40 那次启动里 `pi-web` 还是正常的，失败发生在 14:47 那次（STEP 3 升级 pi-web）。
+
+### 根因（两层）
+
+1. **直接原因**：`%APPDATA%
+pm` 下没有 `pi-web` / `pi-web.cmd` / `pi-web.ps1`，只剩 `.pi-web-TGMIF9N3` / `.pi-web.cmd-XCdrzKM8` / `.pi-web.ps1-AsxPA9Sh` 三个隐藏文件（mtime 仍是 11-05，即旧 shim 的原时间戳）。
+   npm 在 Windows 上替换 bin shim 的流程是「先把旧 shim 改名成 `.<name>-<随机串>` 备份，再写新 shim」；14:40 那次 STEP 3 的 `npm install -g @agegr/pi-web@latest`（0.15.0 → 0.16.0）跑到 396 s 时被杀，退出码 `-1073741510` = `0xC000013A` = STATUS_CONTROL_C_EXIT。包本体已装好（`npm ls -g` 显示 0.16.0 在位），但 bin 链接阶段停在半路 —— 正式名永久缺失，改名后的备份留着。
+2. **放大原因**：launcher 预检只做 `where pi-web` 的存在性检查，缺失就直接退出码 1，没有任何自愈；且报错文案对 `pi` / `pi-web` / `npm` 一律提示「安装 @earendil-works/pi-coding-agent」（v1.1.3 已修正文案，但仍不会修复）。
+
+### 修复
+
+| 项 | 内容 |
+|---|---|
+| 预检自愈 | `pi-web` 缺失时先 `repair_pi_web_cli()`：① 复位 `.pi-web*` 残留备份（只动普通文件、只认字母数字随机后缀、不覆盖已存在的正式 shim）② 包本体在但 shim 全无 → 补写最小可用的 `pi-web.cmd` ③ 包本体缺失 → `npm install -g @agegr/pi-web@latest` 重装 |
+| npm 前缀 | `npm prefix -g` 优先，失败回退 `%APPDATA%
+pm`（保证 npm 本身不可用时也能修） |
+| 升级中断 | `run_upgrade_install` 新增 `-1073741510` / `130` 分支：先修复 shim，成功则「按现有版本继续启动」，失败才退出码 3 |
+| 升级后校验 | 成功路径也复查 `command_exists("pi-web")`，防「包装好了、shim 没写出来」 |
+| 单测 | `staged_shim_targets`、`restore_staged_shims_renames_backups`（含「已有正式 shim 不覆盖」） |
+| 版本 | `Cargo.toml` / `ui::VERSION` → `1.1.6`（远端已有 1.1.3–1.1.5，本次顺延） |
+| 文档 | README / AGENTS.md 体积基线、`tools/gen-docs.ps1` 版本串并重新生成 `docs/Pi-Luncher.html`（用例：`pwsh tools/gen-docs.ps1`） |
+
+### 验证
+
+- 单测 15 passed（新增 2 项 shim 相关）。
+- **真实故障注入**：把 `%APPDATA%
+pm\pi-web*` 三个 shim 改名成 `.pi-web-TESTAA01` 等 → 跑 `pi-launcher.exe --quiet`，日志出现三条「↻ 复位 npm 残留 shim」+「✓ 已复位 `pi-web` shim」，STEP 1 通过，退出码 0。
+- **第二种故障**：删掉三个 shim 只留包本体 → 同法验证「✓ 已补写 shim：…
+pm\pi-web.cmd」，`cmd /c pi-web --version` 返回 0.16.0；测完已还原 npm 原始 shim。
+- `cargo build --release` 产物 **420,352 字节**（v1.1.5 为 413,184，+7,168 B / +1.73%）。
+
+### 遗留
+
+- launcher 只在预检修 `pi-web`；`pi` 自身 shim 缺失仍走「给安装命令」路径（`pi` 由 pi update 自身管理，重装代价高，未做自动重装）。
+- 修复逻辑只覆盖 npm 的 staging 命名（`.pi-web-<alnum>`）；若 npm 未来改命名规则，需同步 `staged_shim_target()`。
+
+---
+
 ## 2026-10-22 · v1.1.5 沙漏转圈「看着静止」修复
 
 ### 动因
